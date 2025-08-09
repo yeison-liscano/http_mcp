@@ -1,0 +1,50 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Python Style Guide and Best Practices
+
+## Type Hints
+- All function parameters MUST have type hints
+- All function return values MUST have type hints
+- All class attributes MUST have type hints
+- Use `collections.abc` for abstract base classes (Sequence, Mapping, Set, etc.)
+- Use built-in types for simple type hints (str, int, bool, list, dict, etc.)
+- Use `type | None` instead of `Optional[type]`
+- Example:
+  ```python
+  from collections.abc import Sequence
+
+  def process_data(items: Sequence[str], max_items: int | None = None) -> dict[str, int]:
+      ...
+  ```
+
+## Functional Programming Paradigm
+- Prefer pure functions over methods with side effects
+- Use immutable data structures when possible, prefer tuples over lists
+- Avoid modifying function arguments
+- Use list/dict comprehensions instead of loops when possible
+- Minimize global state and mutable variables
+- Return new values instead of modifying existing ones
+- Example:
+  ```python
+  # Good - Pure function, immutable
+  def transform_data(data: list[int]) -> list[int]:
+      return [x * 2 for x in data if x > 0]
+
+  # Bad - Modifies input, has side effects
+  def transform_data(data: list[int]) -> None:
+      for i in range(len(data)):
+          data[i] *= 2
+  ```
+
+## Code Organization
+- Keep functions small and focused on a single responsibility
+- Use composition over inheritance
+- Prefer dependency injection over global state
+- Use descriptive variable names that reflect their purpose
+
+## Testing
+- Write unit tests for all pure functions
+- Test edge cases and error conditions

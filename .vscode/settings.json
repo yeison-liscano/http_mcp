@@ -1,0 +1,22 @@
+{
+  "[python]": {
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.rulers": [100],
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "mypy-type-checker.cwd": "/",
+  "ruff.configurationPreference": "filesystemFirst",
+  "ruff.organizeImports": true,
+  "ruff.lineLength": 100,
+  "mypy-type-checker.args": ["--explicit-package-bases", "--config-file", "mypy.ini"],
+  "python.testing.pytestArgs": [
+    "test",
+    "-vv"
+  ],
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false
+}

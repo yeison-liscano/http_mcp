@@ -1,0 +1,33 @@
+[project]
+authors = [
+  { name = "Yeison Liscano", email = "yliscanoc@gmail.com" },
+]
+name = "project"
+version = "0.0.1"
+description = "This is a base python project environment configuration using uv"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+  "pydantic==2.10.5",
+]
+
+[dependency-groups]
+dev = [
+  "mypy==1.9.0",
+  "ruff==0.9.10",
+]
+
+
+[project.scripts]
+project-run = "project.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["project"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.uv.sources]
+microsoft-python-type-stubs = { git = "https://github.com/microsoft/python-type-stubs.git" }

@@ -1,0 +1,13 @@
+{
+  "autoAccept": false,
+  "contextFileName": "AGENT.md",
+  "usageStatisticsEnabled": true,
+  "respectGitIgnore": true,
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@1.0.14"],
+      "includeTools": ["resolve-library-id", "get-library-docs"]
+    }
+  }
+}

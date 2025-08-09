@@ -1,0 +1,5 @@
+.venv
+.env
+.ruff_cache
+.mypy_cache
+.npm
