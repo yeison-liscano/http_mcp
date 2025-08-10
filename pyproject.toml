@@ -8,18 +8,19 @@ description = "This is a base python project environment configuration using uv"
 requires-python = ">=3.13,<3.14"
 
 dependencies = [
+  "mcp==1.12.3",
   "pydantic==2.10.5",
 ]
 
 [dependency-groups]
 dev = [
   "mypy==1.9.0",
+  "pytest==8.4.1",
   "ruff==0.9.10",
 ]
 
 
-[project.scripts]
-project-run = "project.main:main"
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["project"]

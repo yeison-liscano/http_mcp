@@ -1,13 +1,16 @@
-# Base Python Project
+# Simple HTTP MCP Server
 
-This project is a base python project environment configuration using Nix.
+This project provides a lightweight server implementation for the Machine-to-Machine Communication Protocol (MCP) over HTTP. It allows you to expose Python functions as "tools" that can be discovered and executed remotely via a JSON-RPC interface.
 
 ## Features
 
+- **MCP Protocol Compliant**: Implements the MCP specification for tool discovery and execution.
+- **HTTP Transport**: Uses HTTP POST for communication.
+- **Async Support**: Built on `Starlette` for asynchronous request handling.
+- **Type-Safe**: Leverages `Pydantic` for robust data validation and serialization.
 - **Dependency Management**: Uses `uv` for fast and efficient package management.
 - **Linting**: Integrated with `Ruff` for code formatting and linting.
 - **Type Checking**: Uses `Mypy` for static type checking.
-- **Environment Management**: Configured to work with `direnv` for automatic environment loading.
 
 ## Getting Started
 
@@ -20,35 +23,19 @@ This project is a base python project environment configuration using Nix.
 1.  **Clone the repository:**
     ```bash
     git clone <repository-url>
-    cd base_python_project
-    uv venv --python 3.13
-    source .venv/bin/activate
-    # install dependencies
-    uv sync
-    # adding dependencies to the project
-    uv add <dependency>
-    # removing dependencies from the project
-    uv remove <dependency>
-    # updating dependencies to the latest version
-    uv update <dependency>
-    # updating all dependencies to the latest version
+    cd simple-http-mcp
     ```
 
-
+2.  **Create a virtual environment and install dependencies:**
+    ```bash
+    uv venv
+    source .venv/bin/activate
+    uv sync
+    ```
 
 ## Usage
 
-To run the main application:
-
-```bash
-python -m project.main
-```
-
-Or using the project script:
-
-```bash
-project-run
-```
+For usage examples, please refer to the tests in the `tests/` directory.
 
 ## Development
 

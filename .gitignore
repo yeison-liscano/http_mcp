@@ -3,3 +3,5 @@
 .ruff_cache
 .mypy_cache
 .npm
+__pycache__
+.pytest_cache
