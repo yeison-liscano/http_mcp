@@ -1,15 +1,16 @@
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.models import Tool, TToolsArguments, TToolsContext, TToolsOutput
+from server.models import Tool, TToolsArguments_co, TToolsContext, TToolsOutput_co
 from server.server_interface import ServerInterface
 from server.transport import HTTPTransport
 
 
-class MCPServer(ServerInterface[TToolsContext, TToolsOutput]):
+class MCPServer(ServerInterface[TToolsContext]):
     def __init__(
         self,
-        tools: tuple[Tool[TToolsArguments, TToolsContext, TToolsOutput], ...],
+        tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
         name: str,
         version: str,
         endpoint: str,
@@ -29,7 +30,7 @@ class MCPServer(ServerInterface[TToolsContext, TToolsOutput]):
         args: dict,
         request: Request,
         context: TToolsContext,
-    ) -> TToolsOutput:
+    ) -> BaseModel:
         tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
         return await tool.invoque(args, request, context)
 

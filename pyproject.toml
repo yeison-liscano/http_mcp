@@ -1,29 +1,20 @@
 [project]
-authors = [
-  { name = "Yeison Liscano", email = "yliscanoc@gmail.com" },
-]
+authors = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
 name = "project"
 version = "0.0.1"
 description = "This is a base python project environment configuration using uv"
 requires-python = ">=3.13,<3.14"
 
-dependencies = [
-  "mcp==1.12.3",
-  "pydantic==2.10.5",
-]
+dependencies = ["mcp==1.12.3", "pydantic==2.10.5"]
 
 [dependency-groups]
-dev = [
-  "mypy==1.9.0",
-  "pytest==8.4.1",
-  "ruff==0.9.10",
-]
-
-
-
+dev = ["mypy==1.9.0", "pytest==8.4.1", "ruff==0.9.10"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["project"]
+packages = ["server"]
+
+[project.scripts]
+run-app = "app.main:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Generic
 
+from pydantic import BaseModel
 from starlette.requests import Request
 
-from server.models import TToolsContext, TToolsOutput
+from server.models import TToolsContext
 
 
-class ServerInterface(ABC, Generic[TToolsContext, TToolsOutput]):
+class ServerInterface(ABC, Generic[TToolsContext]):
     @abstractmethod
     async def call_tool(
         self,
@@ -14,7 +15,7 @@ class ServerInterface(ABC, Generic[TToolsContext, TToolsOutput]):
         args: dict,
         request: Request,
         context: TToolsContext,
-    ) -> TToolsOutput:
+    ) -> BaseModel:
         raise NotImplementedError
 
     @abstractmethod

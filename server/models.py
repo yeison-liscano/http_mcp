@@ -6,23 +6,23 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 TToolsContext = TypeVar("TToolsContext", bound=BaseModel | None)
-TToolsArguments = TypeVar("TToolsArguments", bound=BaseModel)
-TToolsOutput = TypeVar("TToolsOutput", bound=BaseModel)
+TToolsArguments_co = TypeVar("TToolsArguments_co", bound=BaseModel, covariant=True)
+TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
 
 
 @dataclass
-class Input(Generic[TToolsArguments, TToolsContext]):
+class Input(Generic[TToolsArguments_co, TToolsContext]):
     request: Request
-    arguments: TToolsArguments
+    arguments: TToolsArguments_co
     context: TToolsContext | None = None
 
 
 @dataclass
-class Tool(Generic[TToolsArguments, TToolsContext, TToolsOutput]):
-    func: Callable[[Input[TToolsArguments, TToolsContext]], Awaitable[TToolsOutput]]
-    input: type[Input[TToolsArguments, TToolsContext]]
-    input_arguments: type[TToolsArguments]
-    output: type[TToolsOutput]
+class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
+    func: Callable[[Input[TToolsArguments_co, TToolsContext]], Awaitable[TToolsOutput_co]]
+    input: type[Input[TToolsArguments_co, TToolsContext]]
+    input_arguments: type[TToolsArguments_co]
+    output: type[TToolsOutput_co]
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
@@ -58,7 +58,9 @@ class Tool(Generic[TToolsArguments, TToolsContext, TToolsOutput]):
         schema["title"] = self.name + "Output"
         return schema
 
-    async def invoque(self, args: dict, request: Request, context: TToolsContext) -> TToolsOutput:
+    async def invoque(
+        self, args: dict, request: Request, context: TToolsContext
+    ) -> TToolsOutput_co:
         validated_args = self.input_arguments.model_validate(args)
         return await self.func(self.input(request, validated_args, context))
 

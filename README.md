@@ -1,12 +1,33 @@
 # Simple HTTP MCP Server
 
-This project provides a lightweight server implementation for the Machine-to-Machine Communication Protocol (MCP) over HTTP. It allows you to expose Python functions as "tools" that can be discovered and executed remotely via a JSON-RPC interface.
+This project provides a lightweight server implementation for the Model Context Protocol (MCP) over HTTP. It allows you to expose Python functions as "tools" that can be discovered and executed remotely via a JSON-RPC interface. It is thought to be used with an Starlette or FastAPI application (see [app/main.py](app/main.py)).
+
+## How to test with Gemini Cli
+
+1.  **Install dependencies:**
+    ```bash
+    uv sync
+    uv run run-app
+    ```
+
+2.  **Test the server:**
+
+    Note: you should be located on the root folder of the project so gemini config is used.
+
+    ```bash
+    gemini
+    /mcp # This should show the tools available
+    ```
+
+Example:
+
+![Example](assets/gemini_test.png)
 
 ## Features
 
 - **MCP Protocol Compliant**: Implements the MCP specification for tool discovery and execution.
 - **HTTP Transport**: Uses HTTP POST for communication.
-- **Async Support**: Built on `Starlette` for asynchronous request handling.
+- **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request handling.
 - **Type-Safe**: Leverages `Pydantic` for robust data validation and serialization.
 - **Dependency Management**: Uses `uv` for fast and efficient package management.
 - **Linting**: Integrated with `Ruff` for code formatting and linting.
