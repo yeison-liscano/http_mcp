@@ -1,17 +1,17 @@
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from server.models import Input, Tool
 
 
 class GetWeatherInput(BaseModel):
-    location: str
-    unit: str = "celsius"
+    location: str = Field(description="The location to get the weather for")
+    unit: str = Field(description="The unit of temperature", default="celsius")
 
 
 class GetWeatherOutput(BaseModel):
-    weather: str
+    weather: str = Field(description="The weather in the given location")
 
 
 async def get_weather(args: Input[GetWeatherInput, None]) -> GetWeatherOutput:
@@ -26,7 +26,7 @@ class GetTimeInput(BaseModel):
 
 
 class GetTimeOutput(BaseModel):
-    time: str
+    time: str = Field(description="The current time")
 
 
 async def get_time(_args: Input[GetTimeInput, None]) -> GetTimeOutput:

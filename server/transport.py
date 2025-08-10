@@ -19,23 +19,15 @@ from starlette.types import Receive, Scope, Send
 
 from server.server_interface import ServerInterface
 
-LOGGER = logging.getLogger("interacts")
+LOGGER = logging.getLogger(__name__)
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
 
 
 class HTTPTransport:
     supported_versions = ("2024-11-05", "2025-03-26", "2025-06-18")
+    supported_methods = ("initialize", "tools/list", "tools/call", "prompts/list")
 
-    def __init__(
-        self,
-        endpoint: str,
-        version: str,
-        name: str,
-        server: ServerInterface,
-    ) -> None:
-        self._endpoint = endpoint
-        self._version = version
-        self._name = name
+    def __init__(self, server: ServerInterface) -> None:
         self._server = server
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -47,7 +39,7 @@ class HTTPTransport:
             await self._handle_unsupported_request(send)
 
     async def _handle_post_request(self, request: Request, send: Send) -> None:
-        content_type = request.headers.get("content-type", "")
+        content_type = request.headers.get("content-type")
 
         # we only support HTTP
         if not content_type or "application/json" not in content_type:
@@ -73,7 +65,7 @@ class HTTPTransport:
             return await self._send_error_response(
                 send,
                 -32700,
-                "Parse error: Invalid JSON",
+                "Parse error: Invalid body",
                 400,
             )
 
@@ -93,11 +85,11 @@ class HTTPTransport:
                     if not msg.get("method", "").startswith("notifications/"):
                         messages.append(JSONRPCRequest.model_validate(msg))
                 except ValidationError:
-                    LOGGER.exception("Error")
+                    LOGGER.exception("Error validating message")
                     return await self._send_error_response(
                         send,
                         -32700,
-                        "Parse error",
+                        "Error validating message request",
                         400,
                     )
         else:
@@ -110,11 +102,11 @@ class HTTPTransport:
                 if not raw_message.get("method", "").startswith("notifications/"):
                     messages.append(JSONRPCRequest.model_validate(raw_message))
             except ValidationError:
-                LOGGER.exception("Error")
+                LOGGER.exception("Error validating message")
                 return await self._send_error_response(
                     send,
                     -32700,
-                    "Error",
+                    "Error validating message request",
                     400,
                 )
 
@@ -254,15 +246,17 @@ class HTTPTransport:
                     isError=False,
                 ).model_dump(),
             )
-        except Exception:  # noqa: BLE001
-            LOGGER.error("Error calling tool %s", name)
-            return JSONRPCError(
+        except Exception:
+            LOGGER.exception("Error calling tool %s", name)
+            return JSONRPCResponse(
                 jsonrpc="2.0",
                 id=message.id,
-                error=ErrorData(
-                    code=-32000,
-                    message="Error calling tool",
-                ),
+                # TODO(https://github.com/yeison-liscano/http_mcp/issues/2): # noqa: FIX002
+                result=CallToolResult(
+                    content=[TextContent(type="text", text="Error calling tool")],
+                    structuredContent={},
+                    isError=True,
+                ).model_dump(),
             )
 
     async def _send_accept_response(self, send: Send) -> None:
@@ -298,13 +292,8 @@ class HTTPTransport:
                 id=message_id,
                 result={
                     "protocolVersion": protocol_version,
-                    "capabilities": {
-                        "experimental": {},
-                        "prompts": {"listChanged": False},
-                        "resources": {"listChanged": False},
-                        "tools": {"listChanged": False},
-                    },
-                    "serverInfo": {"name": self._name, "version": self._version},
+                    "capabilities": self._server.capabilities.to_dict(),
+                    "serverInfo": {"name": self._server.name, "version": self._server.version},
                 },
             )
 
@@ -324,8 +313,8 @@ class HTTPTransport:
                     code=-32602,
                     message="Unsupported protocol version",
                     data={
-                        "supportedVersions": list(self.supported_versions),
-                        "requestedVersion": protocol_version,
+                        "supported": list(self.supported_versions),
+                        "requested": protocol_version,
                     },
                 ),
             )
@@ -394,26 +383,27 @@ class HTTPTransport:
         request: Request,
     ) -> JSONRPCResponse | JSONRPCError:
         try:
-            if message.method.startswith("tools/"):
-                return await self._process_tools_request(message, request)
-            if message.method.startswith("prompts/"):
-                return await self._process_prompts_request(message)
+            if message.method in self.supported_methods:
+                if message.method.startswith("tools/"):
+                    return await self._process_tools_request(message, request)
+                if message.method.startswith("prompts/"):
+                    return await self._process_prompts_request(message)
 
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=ErrorData(
                     code=-32601,
-                    message=f"Method not found: {message.method}",
+                    message=f"Method not supported: {message.method}",
                 ),
             )
-        except Exception as e:
+        except Exception:
             LOGGER.exception("Error processing request")
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=ErrorData(
                     code=-32603,
-                    message=f"Internal error {e}",
+                    message="Internal error",
                 ),
             )

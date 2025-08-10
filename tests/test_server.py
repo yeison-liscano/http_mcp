@@ -7,7 +7,7 @@ from tests.tools import TOOLS
 
 
 def test_server_list_tools() -> None:
-    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", endpoint="/mcp", context=None)
+    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=None)
     client = TestClient(server.app)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
     assert response.status_code == HTTPStatus.OK
@@ -50,7 +50,7 @@ def test_server_list_tools() -> None:
 
 
 def test_server_call_tool() -> None:
-    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", endpoint="/mcp", context=None)
+    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=None)
     client = TestClient(server.app)
     response = client.post(
         "/mcp",

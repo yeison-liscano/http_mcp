@@ -2,7 +2,14 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.models import Tool, TToolsArguments_co, TToolsContext, TToolsOutput_co
+from server.models import (
+    Capability,
+    ServerCapabilities,
+    Tool,
+    TToolsArguments_co,
+    TToolsContext,
+    TToolsOutput_co,
+)
 from server.server_interface import ServerInterface
 from server.transport import HTTPTransport
 
@@ -10,16 +17,16 @@ from server.transport import HTTPTransport
 class MCPServer(ServerInterface[TToolsContext]):
     def __init__(
         self,
-        tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
         name: str,
         version: str,
-        endpoint: str,
+        tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
         context: TToolsContext | None = None,
     ) -> None:
-        self.version = version
+        self._version = version
+        self._name = name
         self._context = context
         self._tools = tools
-        self._transport = HTTPTransport(endpoint, version, name, self)
+        self._transport = HTTPTransport(self)
 
     async def app(self, scope: Scope, receive: Receive, send: Send) -> None:
         await self._transport.handle_request(scope, receive, send)
@@ -40,3 +47,19 @@ class MCPServer(ServerInterface[TToolsContext]):
     @property
     def context(self) -> TToolsContext | None:
         return self._context
+
+    @property
+    def version(self) -> str:
+        return self._version
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def capabilities(self) -> ServerCapabilities:
+        capability = Capability(list_changed=False, subscribe=False)
+        return ServerCapabilities(
+            prompts=capability if self._tools else None,
+            tools=None,
+        )

@@ -4,7 +4,7 @@ from typing import Generic
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from server.models import TToolsContext
+from server.models import ServerCapabilities, TToolsContext
 
 
 class ServerInterface(ABC, Generic[TToolsContext]):
@@ -25,4 +25,19 @@ class ServerInterface(ABC, Generic[TToolsContext]):
     @property
     @abstractmethod
     def context(self) -> TToolsContext | None:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def version(self) -> str:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> ServerCapabilities:
         raise NotImplementedError

@@ -5,7 +5,7 @@ from app.tools import TOOLS
 from server.server import MCPServer
 
 app = Starlette()
-mcp_server = MCPServer(tools=TOOLS, name="test", version="1.0.0", endpoint="/mcp", context=None)
+mcp_server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=None)
 
 app.mount(
     "/mcp",

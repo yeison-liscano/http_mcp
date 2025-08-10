@@ -5,6 +5,8 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel
 from starlette.requests import Request
 
+from server.utils import dict_keys_to_camel_case
+
 TToolsContext = TypeVar("TToolsContext", bound=BaseModel | None)
 TToolsArguments_co = TypeVar("TToolsArguments_co", bound=BaseModel, covariant=True)
 TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
@@ -74,3 +76,16 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
             "annotations": self.annotations,
             "meta": None,
         }
+
+
+class Capability(BaseModel):
+    list_changed: bool
+    subscribe: bool
+
+
+class ServerCapabilities(BaseModel):
+    prompts: Capability | None = None
+    tools: Capability | None = None
+
+    def to_dict(self) -> dict:
+        return dict_keys_to_camel_case(self.model_dump())
