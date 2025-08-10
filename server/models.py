@@ -7,7 +7,7 @@ from starlette.requests import Request
 
 from server.utils import dict_keys_to_camel_case
 
-TToolsContext = TypeVar("TToolsContext", bound=BaseModel | None)
+TToolsContext = TypeVar("TToolsContext")
 TToolsArguments_co = TypeVar("TToolsArguments_co", bound=BaseModel, covariant=True)
 TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
 
@@ -16,7 +16,7 @@ TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
 class Input(Generic[TToolsArguments_co, TToolsContext]):
     request: Request
     arguments: TToolsArguments_co
-    context: TToolsContext | None = None
+    context: TToolsContext
 
 
 @dataclass

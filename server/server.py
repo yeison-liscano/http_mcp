@@ -20,7 +20,7 @@ class MCPServer(ServerInterface[TToolsContext]):
         name: str,
         version: str,
         tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
-        context: TToolsContext | None = None,
+        context: TToolsContext,
     ) -> None:
         self._version = version
         self._name = name

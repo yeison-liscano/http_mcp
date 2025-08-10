@@ -2,12 +2,31 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
+from server.models import Input, Tool
 from server.server import MCPServer
-from tests.tools import TOOLS
+from tests.models import TestToolArguments, TestToolOutput
+
+
+async def simple_server_tool(args: Input[TestToolArguments, None]) -> TestToolOutput:
+    """Return a simple server tool."""
+    assert args.arguments.question == "What is the meaning of life?"
+    assert args.request.method == "POST"
+    assert args.context is None
+    return TestToolOutput(answer=f"Hello, {args.arguments.question}!")
+
+
+TOOLS_SIMPLE_SERVER = (
+    Tool(
+        func=simple_server_tool,
+        input=Input[TestToolArguments, None],
+        input_arguments=TestToolArguments,
+        output=TestToolOutput,
+    ),
+)
 
 
 def test_server_list_tools() -> None:
-    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=None)
+    server = MCPServer(tools=TOOLS_SIMPLE_SERVER, name="test", version="1.0.0", context=None)
     client = TestClient(server.app)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
     assert response.status_code == HTTPStatus.OK
@@ -50,7 +69,7 @@ def test_server_list_tools() -> None:
 
 
 def test_server_call_tool() -> None:
-    server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=None)
+    server = MCPServer(tools=TOOLS_SIMPLE_SERVER, name="test", version="1.0.0", context=None)
     client = TestClient(server.app)
     response = client.post(
         "/mcp",

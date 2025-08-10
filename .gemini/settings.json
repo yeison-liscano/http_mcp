@@ -6,7 +6,10 @@
   "mcpServers": {
     "test": {
       "httpUrl": "http://localhost:8000/mcp/",
-      "timeout": 5000
+      "timeout": 5000,
+      "headers": {
+        "Authorization": "Bearer TEST_TOKEN"
+      }
     }
   }
 }

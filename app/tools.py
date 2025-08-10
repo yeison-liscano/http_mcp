@@ -1,8 +1,22 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
 from server.models import Input, Tool
+
+
+@dataclass
+class Context:
+    called_tools: list[str] = field(default_factory=list)
+
+    def get_called_tools(self) -> list[str]:
+        return self.called_tools
+
+    def add_called_tool(self, tool_name: str) -> None:
+        self.called_tools.append(tool_name)
 
 
 class GetWeatherInput(BaseModel):
@@ -14,8 +28,9 @@ class GetWeatherOutput(BaseModel):
     weather: str = Field(description="The weather in the given location")
 
 
-async def get_weather(args: Input[GetWeatherInput, None]) -> GetWeatherOutput:
+async def get_weather(args: Input[GetWeatherInput, Context]) -> GetWeatherOutput:
     """Get the current weather in a given location."""
+    args.context.add_called_tool("get_weather")
     return GetWeatherOutput(
         weather=f"The weather in {args.arguments.location} is 25 degrees {args.arguments.unit}"
     )
@@ -29,22 +44,67 @@ class GetTimeOutput(BaseModel):
     time: str = Field(description="The current time")
 
 
-async def get_time(_args: Input[GetTimeInput, None]) -> GetTimeOutput:
+async def get_time(args: Input[GetTimeInput, Context]) -> GetTimeOutput:
     """Get the current time."""
+    args.context.add_called_tool("get_time")
     return GetTimeOutput(time=datetime.now(UTC).strftime("%H:%M:%S"))
+
+
+class ToolThatAccessRequest(BaseModel):
+    username: str = Field(description="The username of the user")
+
+
+class ToolThatAccessRequestOutput(BaseModel):
+    message: str = Field(description="The message to the user")
+
+
+async def tool_that_access_request(
+    args: Input[ToolThatAccessRequest, Context],
+) -> ToolThatAccessRequestOutput:
+    """Access the request."""
+    req_authentication = args.request.headers.get("Authorization")
+    args.context.add_called_tool("tool_that_access_request")
+    return ToolThatAccessRequestOutput(
+        message=f"Hello {args.arguments.username} you are authenticated with {req_authentication}"
+    )
+
+
+class GetCalledToolsInput(BaseModel):
+    pass
+
+
+class GetCalledToolsOutput(BaseModel):
+    called_tools: list[str] = Field(description="The list of called tools")
+
+
+async def get_called_tools(args: Input[GetCalledToolsInput, Context]) -> GetCalledToolsOutput:
+    """Get the list of called tools."""
+    return GetCalledToolsOutput(called_tools=args.context.get_called_tools())
 
 
 TOOLS = (
     Tool(
         func=get_weather,
-        input=Input[GetWeatherInput, None],
+        input=Input[GetWeatherInput, Context],
         input_arguments=GetWeatherInput,
         output=GetWeatherOutput,
     ),
     Tool(
         func=get_time,
-        input=Input[GetTimeInput, None],
+        input=Input[GetTimeInput, Context],
         input_arguments=GetTimeInput,
         output=GetTimeOutput,
+    ),
+    Tool(
+        func=tool_that_access_request,
+        input=Input[ToolThatAccessRequest, Context],
+        input_arguments=ToolThatAccessRequest,
+        output=ToolThatAccessRequestOutput,
+    ),
+    Tool(
+        func=get_called_tools,
+        input=Input[GetCalledToolsInput, Context],
+        input_arguments=GetCalledToolsInput,
+        output=GetCalledToolsOutput,
     ),
 )
