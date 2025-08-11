@@ -1,0 +1,250 @@
+from dataclasses import dataclass, field
+from http import HTTPStatus
+
+from pydantic import BaseModel, Field
+from starlette.testclient import TestClient
+
+from server.models import Input, Tool
+from server.server import MCPServer
+
+
+class TestTool1Arguments(BaseModel):
+    question: str = Field(description="The question to answer")
+
+
+class TestTool1Output(BaseModel):
+    answer: str = Field(description="The answer to the question")
+
+
+class TestTool2Arguments(BaseModel):
+    user_id: str = Field(description="The user ID to get information about")
+
+
+class TestTool2Output(BaseModel):
+    user_id: str = Field(description="The user ID")
+    email: str = Field(description="The email address of the user")
+
+
+@dataclass
+class TestContext:
+    called_tools: list[str] = field(default_factory=list)
+
+    def add_called_tool(self, tool_name: str) -> None:
+        self.called_tools.append(tool_name)
+
+    def get_called_tools(self) -> list[str]:
+        return self.called_tools
+
+
+async def tool_1(args: Input[TestTool1Arguments, TestContext]) -> TestTool1Output:
+    """Return a simple answer."""
+    assert args.arguments.question == "What is the meaning of life?"
+    assert args.context.called_tools == []
+    args.context.add_called_tool("tool_1")
+    return TestTool1Output(answer=f"Hello, {args.arguments.question}!")
+
+
+async def tool_2(args: Input[TestTool2Arguments, TestContext]) -> TestTool2Output:
+    """Return a simple user information."""
+    assert args.arguments.user_id == "123"
+    assert args.context.called_tools == ["tool_1"]
+    args.context.add_called_tool("tool_2")
+    return TestTool2Output(
+        user_id=args.arguments.user_id, email=f"{args.arguments.user_id}@example.com"
+    )
+
+
+TOOLS = (
+    Tool(
+        func=tool_1,
+        input=Input[TestTool1Arguments, TestContext],
+        input_arguments=TestTool1Arguments,
+        output=TestTool1Output,
+    ),
+    Tool(
+        func=tool_2,
+        input=Input[TestTool2Arguments, TestContext],
+        input_arguments=TestTool2Arguments,
+        output=TestTool2Output,
+    ),
+)
+
+
+def test_list_tools() -> None:
+    context = TestContext(called_tools=[])
+    server = MCPServer(
+        tools=TOOLS,
+        name="test",
+        version="1.0.0",
+        context=context,
+    )
+    client = TestClient(server.app)
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [
+                {
+                    "name": "tool_1",
+                    "title": "Tool 1",
+                    "description": "Return a simple answer.",
+                    "inputSchema": {
+                        "title": "tool_1Arguments",
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "title": "Question",
+                                "type": "string",
+                                "description": "The question to answer",
+                            }
+                        },
+                        "required": ["question"],
+                    },
+                    "outputSchema": {
+                        "title": "tool_1Output",
+                        "type": "object",
+                        "properties": {
+                            "answer": {
+                                "title": "Answer",
+                                "type": "string",
+                                "description": "The answer to the question",
+                            }
+                        },
+                        "required": ["answer"],
+                    },
+                    "annotations": {
+                        "title": "Tool 1",
+                        "readOnlyHint": False,
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                    },
+                    "meta": None,
+                },
+                {
+                    "name": "tool_2",
+                    "title": "Tool 2",
+                    "description": "Return a simple user information.",
+                    "inputSchema": {
+                        "title": "tool_2Arguments",
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "title": "User Id",
+                                "type": "string",
+                                "description": "The user ID to get information about",
+                            }
+                        },
+                        "required": ["user_id"],
+                    },
+                    "outputSchema": {
+                        "title": "tool_2Output",
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "title": "User Id",
+                                "type": "string",
+                                "description": "The user ID",
+                            },
+                            "email": {
+                                "title": "Email",
+                                "type": "string",
+                                "description": "The email address of the user",
+                            },
+                        },
+                        "required": ["user_id", "email"],
+                    },
+                    "annotations": {
+                        "title": "Tool 2",
+                        "readOnlyHint": False,
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                    },
+                    "meta": None,
+                },
+            ],
+            "nextCursor": "",
+            "meta": None,
+        },
+    }
+
+
+def test_server_call_tool_1() -> None:
+    context = TestContext(called_tools=[])
+    server = MCPServer(
+        tools=TOOLS,
+        name="test",
+        version="1.0.0",
+        context=context,
+    )
+    client = TestClient(server.app)
+    response_1 = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "tool_1",
+                "arguments": {"question": "What is the meaning of life?"},
+            },
+        },
+    )
+    assert response_1.status_code == HTTPStatus.OK
+    response_json = response_1.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"answer":"Hello, What is the meaning of life?!"}',
+                    "annotations": None,
+                    "meta": None,
+                }
+            ],
+            "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
+            "isError": False,
+            "meta": None,
+        },
+    }
+    assert context.called_tools == ["tool_1"]
+
+    response_2 = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "tool_2",
+                "arguments": {"user_id": "123"},
+            },
+        },
+    )
+
+    assert response_2.status_code == HTTPStatus.OK
+    response_json = response_2.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"user_id":"123","email":"123@example.com"}',
+                    "annotations": None,
+                    "meta": None,
+                }
+            ],
+            "structuredContent": {"user_id": "123", "email": "123@example.com"},
+            "isError": False,
+            "meta": None,
+        },
+    }
+    assert context.called_tools == ["tool_1", "tool_2"]

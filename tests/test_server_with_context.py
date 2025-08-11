@@ -15,7 +15,8 @@ async def simple_server_tool_with_context(
     assert args.arguments.question == "What is the meaning of life?"
     assert args.request.method == "POST"
     assert args.request.headers.get("Authorization") == "Bearer TEST_TOKEN"
-    assert args.context.called_tools == ["mock_tool"]
+    assert args.context.called_tools == []
+    args.context.add_called_tool("simple_server_tool_with_context")
     return TestToolOutput(answer=f"Hello, {args.arguments.question}!")
 
 
@@ -30,11 +31,12 @@ TOOLS_SIMPLE_SERVER_WITH_CONTEXT = (
 
 
 def test_server_call_tool() -> None:
+    context = Context(called_tools=[])
     server = MCPServer(
         tools=TOOLS_SIMPLE_SERVER_WITH_CONTEXT,
         name="test",
         version="1.0.0",
-        context=Context(called_tools=["mock_tool"]),
+        context=context,
     )
     client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
@@ -68,3 +70,5 @@ def test_server_call_tool() -> None:
             "meta": None,
         },
     }
+
+    assert context.called_tools == ["simple_server_tool_with_context"]
