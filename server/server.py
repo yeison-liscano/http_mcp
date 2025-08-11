@@ -11,6 +11,7 @@ from server.models import (
     TToolsOutput_co,
 )
 from server.server_interface import ServerInterface
+from server.stdio_transport import StdioTransport
 from server.transport import HTTPTransport
 
 
@@ -26,10 +27,14 @@ class MCPServer(ServerInterface[TToolsContext]):
         self._name = name
         self._context = context
         self._tools = tools
-        self._transport = HTTPTransport(self)
+        self._http_transport = HTTPTransport(self)
+        self._stdio_transport = StdioTransport(self)
 
     async def app(self, scope: Scope, receive: Receive, send: Send) -> None:
-        await self._transport.handle_request(scope, receive, send)
+        await self._http_transport.handle_request(scope, receive, send)
+
+    async def serve_stdio(self, request_headers: dict[str, str] | None = None) -> None:
+        await self._stdio_transport.start(request_headers)
 
     async def call_tool(
         self,
@@ -60,6 +65,6 @@ class MCPServer(ServerInterface[TToolsContext]):
     def capabilities(self) -> ServerCapabilities:
         capability = Capability(list_changed=False, subscribe=False)
         return ServerCapabilities(
-            prompts=capability if self._tools else None,
-            tools=None,
+            prompts=None,
+            tools=capability if self._tools else None,
         )

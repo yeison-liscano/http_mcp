@@ -61,7 +61,10 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
         return schema
 
     async def invoque(
-        self, args: dict, request: Request, context: TToolsContext
+        self,
+        args: dict,
+        request: Request,
+        context: TToolsContext,
     ) -> TToolsOutput_co:
         validated_args = self.input_arguments.model_validate(args)
         return await self.func(self.input(request, validated_args, context))
@@ -88,4 +91,8 @@ class ServerCapabilities(BaseModel):
     tools: Capability | None = None
 
     def to_dict(self) -> dict:
-        return dict_keys_to_camel_case(self.model_dump())
+        return {
+            key: value
+            for key, value in dict_keys_to_camel_case(self.model_dump()).items()
+            if value is not None
+        }

@@ -1,5 +1,6 @@
 def from_snake_case_to_camel_case(string: str) -> str:
-    return "".join(word.capitalize() for word in string.split("_"))
+    splitted = string.split("_")
+    return splitted[0] + "".join(word.capitalize() for word in splitted[1:])
 
 
 def dict_keys_to_camel_case(dictionary: dict) -> dict:

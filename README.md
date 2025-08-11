@@ -7,10 +7,18 @@ This project provides a lightweight server implementation for the Model Context 
 1.  **Install dependencies:**
     ```bash
     uv sync
-    uv run run-app
     ```
 
-2.  **Test the server:**
+2.  **Run the server:**
+    ```bash
+    uv run run-http
+    ```
+    or for stdio transport:
+    ```bash
+    uv run run-stdio
+    ```
+
+3.  **Test the server:**
 
     Note: you should be located on the root folder of the project so gemini config is used.
 
@@ -23,15 +31,73 @@ Example:
 
 ![Example](assets/gemini_test.png)
 
+*Note: The example image is not updated with the latest changes.*
+
 ## Features
 
 - **MCP Protocol Compliant**: Implements the MCP specification for tool discovery and execution.
-- **HTTP Transport**: Uses HTTP POST for communication.
+- **HTTP and STDIO Transport**: Uses HTTP POST or STDIO for communication (Experimental only testing use).
 - **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request handling.
 - **Type-Safe**: Leverages `Pydantic` for robust data validation and serialization.
+- **Stateful Context**: Maintain state across tool calls using a context object.
+- **Request Access**: Access the incoming request object from your tools.
 - **Dependency Management**: Uses `uv` for fast and efficient package management.
 - **Linting**: Integrated with `Ruff` for code formatting and linting.
 - **Type Checking**: Uses `Mypy` for static type checking.
+
+## Stateful Context
+
+You can use a context object to maintain state across tool calls. The context object is passed to each tool call and can be used to store and retrieve data.
+
+To use a context object, you need to:
+
+1.  **Define a context class:**
+    ```python
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class Context:
+        called_tools: list[str] = field(default_factory=list)
+
+        def get_called_tools(self) -> list[str]:
+            return self.called_tools
+
+        def add_called_tool(self, tool_name: str) -> None:
+            self.called_tools.append(tool_name)
+    ```
+
+2.  **Instantiate the context and the server:**
+    ```python
+    from app.tools import TOOLS, Context
+    from server.server import MCPServer
+
+    context = Context(called_tools=[])
+    mcp_server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=context)
+    ```
+
+3.  **Access the context in your tools:**
+    ```python
+    from server.models import Input
+    from app.tools import Context
+
+    async def my_tool(args: Input[MyToolArguments, Context]) -> MyToolOutput:
+        # Access the context
+        args.context.add_called_tool("my_tool")
+        ...
+    ```
+
+## Accessing the Request
+
+You can access the incoming request object from your tools. The request object is passed to each tool call and can be used to access headers, cookies, and other request data.
+
+```python
+from server.models import Input
+
+async def my_tool(args: Input[MyToolArguments, None]) -> MyToolOutput:
+    # Access the request
+    auth_header = args.request.headers.get("Authorization")
+    ...
+```
 
 ## Getting Started
 

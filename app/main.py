@@ -1,3 +1,6 @@
+import asyncio
+import os
+
 import uvicorn
 from starlette.applications import Starlette
 
@@ -14,9 +17,12 @@ app.mount(
 )
 
 
-def main() -> None:
+def run_http() -> None:
     uvicorn.run(app, host="localhost", port=8000)
 
 
-if __name__ == "__main__":
-    main()
+def run_stdio() -> None:
+    request_headers = {
+        "Authorization": os.getenv("AUTHORIZATION_TOKEN", ""),
+    }
+    asyncio.run(mcp_server.serve_stdio(request_headers))

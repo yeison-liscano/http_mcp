@@ -1,0 +1,14 @@
+{
+    "mcpServers": {
+        "test_studio": {
+            "command": "uv",
+            "args": [
+                "run",
+                "run-stdio"
+            ],
+            "env": {
+                "AUTHORIZATION_TOKEN": "Bearer TEST_TOKEN"
+            }
+        }
+    }
+}
