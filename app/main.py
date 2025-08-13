@@ -25,4 +25,4 @@ def run_stdio() -> None:
     request_headers = {
         "Authorization": os.getenv("AUTHORIZATION_TOKEN", ""),
     }
-    asyncio.run(mcp_server.serve_stdio(request_headers))
+    asyncio.run(mcp_server.serve_stdio(request_headers), debug=True)

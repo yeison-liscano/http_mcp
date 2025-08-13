@@ -5,23 +5,10 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from server.models import ServerCapabilities, TToolsContext
+from server.prompts import PromptGetResult, PromptListResult
 
 
 class ServerInterface(ABC, Generic[TToolsContext]):
-    @abstractmethod
-    async def call_tool(
-        self,
-        tool_name: str,
-        args: dict,
-        request: Request,
-        context: TToolsContext,
-    ) -> BaseModel:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def list_tools(self) -> tuple[dict, ...]:
-        raise NotImplementedError
-
     @property
     @abstractmethod
     def context(self) -> TToolsContext | None:
@@ -40,4 +27,26 @@ class ServerInterface(ABC, Generic[TToolsContext]):
     @property
     @abstractmethod
     def capabilities(self) -> ServerCapabilities:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def call_tool(
+        self,
+        tool_name: str,
+        args: dict,
+        request: Request,
+        context: TToolsContext,
+    ) -> BaseModel:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_tools(self) -> tuple[dict, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_prompts(self) -> PromptListResult:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
         raise NotImplementedError

@@ -10,6 +10,7 @@ from server.models import (
     TToolsContext,
     TToolsOutput_co,
 )
+from server.prompts import PromptGetResult, PromptListResult
 from server.server_interface import ServerInterface
 from server.stdio_transport import StdioTransport
 from server.transport import HTTPTransport
@@ -68,3 +69,9 @@ class MCPServer(ServerInterface[TToolsContext]):
             prompts=None,
             tools=capability if self._tools else None,
         )
+
+    def list_prompts(self) -> PromptListResult:
+        raise NotImplementedError
+
+    async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
+        raise NotImplementedError

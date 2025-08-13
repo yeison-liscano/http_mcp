@@ -3,28 +3,27 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from app.tools import Context
-from server.models import Input, Tool
+from server.models import Tool, ToolArguments
 from server.server import MCPServer
 from tests.models import TestToolArguments, TestToolOutput
 
 
 async def simple_server_tool_with_context(
-    args: Input[TestToolArguments, Context],
+    args: ToolArguments[TestToolArguments, Context],
 ) -> TestToolOutput:
     """Return a simple server tool with context."""
-    assert args.arguments.question == "What is the meaning of life?"
+    assert args.inputs.question == "What is the meaning of life?"
     assert args.request.method == "POST"
     assert args.request.headers.get("Authorization") == "Bearer TEST_TOKEN"
     assert args.context.called_tools == []
     args.context.add_called_tool("simple_server_tool_with_context")
-    return TestToolOutput(answer=f"Hello, {args.arguments.question}!")
+    return TestToolOutput(answer=f"Hello, {args.inputs.question}!")
 
 
 TOOLS_SIMPLE_SERVER_WITH_CONTEXT = (
     Tool(
         func=simple_server_tool_with_context,
-        input=Input[TestToolArguments, Context],
-        input_arguments=TestToolArguments,
+        input=TestToolArguments,
         output=TestToolOutput,
     ),
 )
@@ -61,13 +60,10 @@ def test_server_call_tool() -> None:
                 {
                     "type": "text",
                     "text": '{"answer":"Hello, What is the meaning of life?!"}',
-                    "annotations": None,
-                    "meta": None,
                 }
             ],
             "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
             "isError": False,
-            "meta": None,
         },
     }
 

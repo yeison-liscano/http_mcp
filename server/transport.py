@@ -2,15 +2,15 @@ import asyncio
 import json
 import logging
 
-from mcp.types import (
-    ErrorData,
-    JSONRPCError,
-    JSONRPCRequest,
-)
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
+from server.messages import (
+    Error,
+    JSONRPCError,
+    JSONRPCRequest,
+)
 from server.server_interface import ServerInterface
 from server.transport_base import BaseTransport
 
@@ -79,25 +79,39 @@ class HTTPTransport(BaseTransport):
                 try:
                     if not msg.get("method", "").startswith("notifications/"):
                         messages.append(JSONRPCRequest.model_validate(msg))
-                except ValidationError:
+                except ValidationError as e:
                     LOGGER.exception("Error validating message")
                     await self._send_error_response(
                         send,
                         -32700,
-                        "Error validating message request",
+                        json.dumps(e.errors()),
                         400,
                     )
                     return
         else:
             try:
-                if raw_message.get("method", "") == "initialize":
-                    await self._handle_initialization_request(
-                        raw_message,
-                        send,
+                if raw_message.get("method", "").startswith("notifications/"):
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 200,
+                            "headers": [(b"content-type", b"application/json")],
+                        },
+                    )
+
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": b"",
+                            "more_body": False,
+                        },
                     )
                     return
-                if not raw_message.get("method", "").startswith("notifications/"):
-                    messages.append(JSONRPCRequest.model_validate(raw_message))
+                request_message = JSONRPCRequest.model_validate(raw_message)
+                if request_message.method == "initialize":
+                    await self._handle_initialization_request(request_message, send)
+                    return
+                messages.append(request_message)
             except ValidationError:
                 LOGGER.exception("Error validating message")
                 await self._send_error_response(
@@ -134,7 +148,9 @@ class HTTPTransport(BaseTransport):
             await send(
                 {
                     "type": "http.response.body",
-                    "body": responses[0].model_dump_json().encode("utf-8"),
+                    "body": responses[0]
+                    .model_dump_json(by_alias=True, exclude_none=True)
+                    .encode("utf-8"),
                     "more_body": False,
                 },
             )
@@ -143,7 +159,12 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.body",
-                "body": json.dumps([response.model_dump() for response in responses]).encode(
+                "body": json.dumps(
+                    [
+                        response.model_dump_json(by_alias=True, exclude_none=True)
+                        for response in responses
+                    ]
+                ).encode(
                     "utf-8",
                 ),
                 "more_body": False,
@@ -172,8 +193,8 @@ class HTTPTransport(BaseTransport):
     ) -> None:
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=message,
-            error=ErrorData(
+            id=0,
+            error=Error(
                 code=code,
                 message=message,
             ),
@@ -194,23 +215,15 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.body",
-                "body": error_response.model_dump_json().encode("utf-8"),
+                "body": error_response.model_dump_json(by_alias=True, exclude_none=True).encode(
+                    "utf-8"
+                ),
                 "more_body": False,
             },
         )
 
-    async def _handle_initialization_request(self, message: dict, send: Send) -> None:
-        try:
-            request_message = JSONRPCRequest.model_validate(message)
-        except ValidationError:
-            await self._send_error_response(
-                send,
-                -32700,
-                "Parse error: Invalid initialization message",
-            )
-            return
-
-        response, status_code = self._handle_initialization(request_message)
+    async def _handle_initialization_request(self, message: JSONRPCRequest, send: Send) -> None:
+        response, status_code = self._handle_initialization(message)
 
         await send(
             {
@@ -222,7 +235,7 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.body",
-                "body": response.model_dump_json().encode("utf-8"),
+                "body": response.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8"),
                 "more_body": False,
             },
         )

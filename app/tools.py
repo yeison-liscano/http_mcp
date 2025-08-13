@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from server.models import Input, Tool
+from server.models import Tool, ToolArguments
 
 
 @dataclass
@@ -28,11 +28,11 @@ class GetWeatherOutput(BaseModel):
     weather: str = Field(description="The weather in the given location")
 
 
-async def get_weather(args: Input[GetWeatherInput, Context]) -> GetWeatherOutput:
+async def get_weather(args: ToolArguments[GetWeatherInput, Context]) -> GetWeatherOutput:
     """Get the current weather in a given location."""
     args.context.add_called_tool("get_weather")
     return GetWeatherOutput(
-        weather=f"The weather in {args.arguments.location} is 25 degrees {args.arguments.unit}"
+        weather=f"The weather in {args.inputs.location} is 25 degrees {args.inputs.unit}"
     )
 
 
@@ -44,7 +44,7 @@ class GetTimeOutput(BaseModel):
     time: str = Field(description="The current time")
 
 
-async def get_time(args: Input[GetTimeInput, Context]) -> GetTimeOutput:
+async def get_time(args: ToolArguments[GetTimeInput, Context]) -> GetTimeOutput:
     """Get the current time."""
     args.context.add_called_tool("get_time")
     return GetTimeOutput(time=datetime.now(UTC).strftime("%H:%M:%S"))
@@ -59,13 +59,13 @@ class ToolThatAccessRequestOutput(BaseModel):
 
 
 async def tool_that_access_request(
-    args: Input[ToolThatAccessRequest, Context],
+    args: ToolArguments[ToolThatAccessRequest, Context],
 ) -> ToolThatAccessRequestOutput:
     """Access the request."""
     req_authentication = args.request.headers.get("Authorization")
     args.context.add_called_tool("tool_that_access_request")
     return ToolThatAccessRequestOutput(
-        message=f"Hello {args.arguments.username} you are authenticated with {req_authentication}"
+        message=f"Hello {args.inputs.username} you are authenticated with {req_authentication}"
     )
 
 
@@ -77,7 +77,9 @@ class GetCalledToolsOutput(BaseModel):
     called_tools: list[str] = Field(description="The list of called tools")
 
 
-async def get_called_tools(args: Input[GetCalledToolsInput, Context]) -> GetCalledToolsOutput:
+async def get_called_tools(
+    args: ToolArguments[GetCalledToolsInput, Context],
+) -> GetCalledToolsOutput:
     """Get the list of called tools."""
     return GetCalledToolsOutput(called_tools=args.context.get_called_tools())
 
@@ -85,26 +87,22 @@ async def get_called_tools(args: Input[GetCalledToolsInput, Context]) -> GetCall
 TOOLS = (
     Tool(
         func=get_weather,
-        input=Input[GetWeatherInput, Context],
-        input_arguments=GetWeatherInput,
+        input=GetWeatherInput,
         output=GetWeatherOutput,
     ),
     Tool(
         func=get_time,
-        input=Input[GetTimeInput, Context],
-        input_arguments=GetTimeInput,
+        input=GetTimeInput,
         output=GetTimeOutput,
     ),
     Tool(
         func=tool_that_access_request,
-        input=Input[ToolThatAccessRequest, Context],
-        input_arguments=ToolThatAccessRequest,
+        input=ToolThatAccessRequest,
         output=ToolThatAccessRequestOutput,
     ),
     Tool(
         func=get_called_tools,
-        input=Input[GetCalledToolsInput, Context],
-        input_arguments=GetCalledToolsInput,
+        input=GetCalledToolsInput,
         output=GetCalledToolsOutput,
     ),
 )

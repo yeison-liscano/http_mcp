@@ -4,7 +4,7 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from server.models import Input, Tool
+from server.models import Tool, ToolArguments
 from server.server import MCPServer
 
 
@@ -36,35 +36,31 @@ class TestContext:
         return self.called_tools
 
 
-async def tool_1(args: Input[TestTool1Arguments, TestContext]) -> TestTool1Output:
+async def tool_1(args: ToolArguments[TestTool1Arguments, TestContext]) -> TestTool1Output:
     """Return a simple answer."""
-    assert args.arguments.question == "What is the meaning of life?"
+    assert args.inputs.question == "What is the meaning of life?"
     assert args.context.called_tools == []
     args.context.add_called_tool("tool_1")
-    return TestTool1Output(answer=f"Hello, {args.arguments.question}!")
+    return TestTool1Output(answer=f"Hello, {args.inputs.question}!")
 
 
-async def tool_2(args: Input[TestTool2Arguments, TestContext]) -> TestTool2Output:
+async def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
     """Return a simple user information."""
-    assert args.arguments.user_id == "123"
+    assert args.inputs.user_id == "123"
     assert args.context.called_tools == ["tool_1"]
     args.context.add_called_tool("tool_2")
-    return TestTool2Output(
-        user_id=args.arguments.user_id, email=f"{args.arguments.user_id}@example.com"
-    )
+    return TestTool2Output(user_id=args.inputs.user_id, email=f"{args.inputs.user_id}@example.com")
 
 
 TOOLS = (
     Tool(
         func=tool_1,
-        input=Input[TestTool1Arguments, TestContext],
-        input_arguments=TestTool1Arguments,
+        input=TestTool1Arguments,
         output=TestTool1Output,
     ),
     Tool(
         func=tool_2,
-        input=Input[TestTool2Arguments, TestContext],
-        input_arguments=TestTool2Arguments,
+        input=TestTool2Arguments,
         output=TestTool2Output,
     ),
 )
@@ -168,7 +164,6 @@ def test_list_tools() -> None:
                 },
             ],
             "nextCursor": "",
-            "meta": None,
         },
     }
 
@@ -204,13 +199,10 @@ def test_server_call_tool_1() -> None:
                 {
                     "type": "text",
                     "text": '{"answer":"Hello, What is the meaning of life?!"}',
-                    "annotations": None,
-                    "meta": None,
                 }
             ],
             "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
             "isError": False,
-            "meta": None,
         },
     }
     assert context.called_tools == ["tool_1"]
@@ -238,13 +230,10 @@ def test_server_call_tool_1() -> None:
                 {
                     "type": "text",
                     "text": '{"user_id":"123","email":"123@example.com"}',
-                    "annotations": None,
-                    "meta": None,
                 }
             ],
             "structuredContent": {"user_id": "123", "email": "123@example.com"},
             "isError": False,
-            "meta": None,
         },
     }
     assert context.called_tools == ["tool_1", "tool_2"]

@@ -2,24 +2,23 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from server.models import Input, Tool
+from server.models import Tool, ToolArguments
 from server.server import MCPServer
 from tests.models import TestToolArguments, TestToolOutput
 
 
-async def simple_server_tool(args: Input[TestToolArguments, None]) -> TestToolOutput:
+async def simple_server_tool(args: ToolArguments[TestToolArguments, None]) -> TestToolOutput:
     """Return a simple server tool."""
-    assert args.arguments.question == "What is the meaning of life?"
+    assert args.inputs.question == "What is the meaning of life?"
     assert args.request.method == "POST"
     assert args.context is None
-    return TestToolOutput(answer=f"Hello, {args.arguments.question}!")
+    return TestToolOutput(answer=f"Hello, {args.inputs.question}!")
 
 
 TOOLS_SIMPLE_SERVER = (
     Tool(
         func=simple_server_tool,
-        input=Input[TestToolArguments, None],
-        input_arguments=TestToolArguments,
+        input=TestToolArguments,
         output=TestToolOutput,
     ),
 )
@@ -63,7 +62,6 @@ def test_server_list_tools() -> None:
                 },
             ],
             "nextCursor": "",
-            "meta": None,
         },
     }
 
@@ -93,12 +91,9 @@ def test_server_call_tool() -> None:
                 {
                     "type": "text",
                     "text": '{"answer":"Hello, What is the meaning of life?!"}',
-                    "annotations": None,
-                    "meta": None,
                 }
             ],
             "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
             "isError": False,
-            "meta": None,
         },
     }

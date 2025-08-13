@@ -2,21 +2,20 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from server.models import Input, Tool
+from server.models import Tool, ToolArguments
 from server.server import MCPServer
 from tests.models import TestToolArguments, TestToolOutput
 
 
-async def initialization_test_tool(args: Input[TestToolArguments, None]) -> TestToolOutput:
+async def initialization_test_tool(args: ToolArguments[TestToolArguments, None]) -> TestToolOutput:
     """Test tool for initialization testing."""
-    return TestToolOutput(answer=f"Initialized with: {args.arguments.question}")
+    return TestToolOutput(answer=f"Initialized with: {args.inputs.question}")
 
 
 TOOLS_INITIALIZATION = (
     Tool(
         func=initialization_test_tool,
-        input=Input[TestToolArguments, None],
-        input_arguments=TestToolArguments,
+        input=TestToolArguments,
         output=TestToolOutput,
     ),
 )

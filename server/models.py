@@ -2,10 +2,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.requests import Request
-
-from server.utils import dict_keys_to_camel_case
 
 TToolsContext = TypeVar("TToolsContext")
 TToolsArguments_co = TypeVar("TToolsArguments_co", bound=BaseModel, covariant=True)
@@ -13,17 +11,16 @@ TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
 
 
 @dataclass
-class Input(Generic[TToolsArguments_co, TToolsContext]):
+class ToolArguments(Generic[TToolsArguments_co, TToolsContext]):
     request: Request
-    arguments: TToolsArguments_co
+    inputs: TToolsArguments_co
     context: TToolsContext
 
 
 @dataclass
 class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
-    func: Callable[[Input[TToolsArguments_co, TToolsContext]], Awaitable[TToolsOutput_co]]
-    input: type[Input[TToolsArguments_co, TToolsContext]]
-    input_arguments: type[TToolsArguments_co]
+    func: Callable[[ToolArguments[TToolsArguments_co, TToolsContext]], Awaitable[TToolsOutput_co]]
+    input: type[TToolsArguments_co]
     output: type[TToolsOutput_co]
 
     @property
@@ -50,7 +47,7 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
 
     @property
     def input_schema(self) -> dict:
-        schema = self.input_arguments.model_json_schema()
+        schema = self.input.model_json_schema()
         schema["title"] = self.name + "Arguments"
         return schema
 
@@ -66,8 +63,8 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
         request: Request,
         context: TToolsContext,
     ) -> TToolsOutput_co:
-        validated_args = self.input_arguments.model_validate(args)
-        return await self.func(self.input(request, validated_args, context))
+        validated_args = self.input.model_validate(args)
+        return await self.func(ToolArguments(request, validated_args, context))
 
     def generate_json_schema(self) -> dict:
         return {
@@ -82,17 +79,10 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
 
 
 class Capability(BaseModel):
-    list_changed: bool
-    subscribe: bool
+    list_changed: bool = Field(serialization_alias="listChanged", alias_priority=1)
+    subscribe: bool = Field(serialization_alias="subscribe", alias_priority=1)
 
 
 class ServerCapabilities(BaseModel):
     prompts: Capability | None = None
     tools: Capability | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            key: value
-            for key, value in dict_keys_to_camel_case(self.model_dump()).items()
-            if value is not None
-        }

@@ -2,18 +2,17 @@ import asyncio
 import json
 import logging
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from mcp.types import (
-    ErrorData,
-    JSONRPCError,
-    JSONRPCMessage,
-    JSONRPCRequest,
-    JSONRPCResponse,
-)
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from server.messages import (
+    Error,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCRequest,
+)
 from server.server_interface import ServerInterface
 from server.transport_base import BaseTransport
 
@@ -51,28 +50,55 @@ class StdioTransport(BaseTransport):
                 continue
 
             LOGGER.debug("Received message: %s", line)
+            json_message = {}
             try:
-                message = JSONRPCMessage.model_validate_json(line)
+                json_message = json.loads(line)
+                if isinstance(json_message, list):
+                    await asyncio.gather(
+                        *[
+                            self._handle_message(
+                                JSONRPCRequest.model_validate(msg), writer, request_headers
+                            )
+                            for msg in json_message
+                        ]
+                    )
+                else:
+                    await self._handle_message(
+                        JSONRPCRequest.model_validate(json_message), writer, request_headers
+                    )
+            except ValidationError as e:
+                if isinstance(json_message, dict) and json_message.get("method", "").startswith(
+                    "notifications/"
+                ):
+                    continue
+
+                error_response = JSONRPCError(
+                    jsonrpc="2.0",
+                    id=0,
+                    error=Error(code=-32600, message=json.dumps(e.errors())),
+                )
+                await self._write_response(
+                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True)
+                )
             except json.JSONDecodeError:
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
                     id=0,
-                    error=ErrorData(code=-32700, message="Parse error"),
+                    error=Error(code=-32700, message="Parse error"),
                 )
-                await self._write_response(writer, error_response.model_dump())
+                await self._write_response(
+                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True)
+                )
                 continue
-
-            await self._handle_message(message, writer, request_headers)
 
     async def _write_response(
         self,
         writer: asyncio.StreamWriter,
-        response: dict[str, Any] | list[dict[str, Any]],
+        response: str,
     ) -> None:
         """Write a JSON-RPC response to stdout."""
-        response_str = json.dumps(response)
-        LOGGER.debug("Sending response: %s", response_str)
-        writer.write(response_str.encode("utf-8"))
+        LOGGER.debug("Sending response: %s", response)
+        writer.write(response.encode("utf-8"))
         writer.write(b"\n")
         await writer.drain()
 
@@ -93,20 +119,21 @@ class StdioTransport(BaseTransport):
         }
         dummy_request = Request(scope)
 
-        async def process(msg: JSONRPCMessage) -> JSONRPCResponse | JSONRPCError | None:
-            msg_dict = msg.model_dump()
-            if msg_dict.get("method", "").startswith("notifications/"):
+        async def process(msg: JSONRPCRequest) -> JSONRPCMessage | JSONRPCError | None:
+            if msg.method.startswith("notifications/"):
                 return None
             try:
-                validated_msg = JSONRPCRequest.model_validate(msg_dict)
+                validated_msg = JSONRPCRequest.model_validate(msg.model_dump())
                 return await self._process_request(validated_msg, dummy_request)
-            except ValidationError:
+            except ValidationError as e:
                 return JSONRPCError(
                     jsonrpc="2.0",
-                    id=msg.id,  # type: ignore[attr-defined]
-                    error=ErrorData(code=-32600, message="Invalid Request"),
+                    id=msg.id,
+                    error=Error(code=-32600, message=json.dumps(e.errors())),
                 )
 
-        response = await process(message)
+        response = await process(JSONRPCRequest.model_validate(message.model_dump()))
         if response:
-            await self._write_response(writer, response.model_dump())
+            await self._write_response(
+                writer, response.model_dump_json(by_alias=True, exclude_none=True)
+            )
