@@ -2,6 +2,9 @@
 
 This project provides a lightweight server implementation for the Model Context Protocol (MCP) over HTTP. It allows you to expose Python functions as "tools" that can be discovered and executed remotely via a JSON-RPC interface. It is thought to be used with an Starlette or FastAPI application (see [app/main.py](app/main.py)).
 
+<a href="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp/badge" alt="Simple HTTP Server MCP server" />
+</a>
 
 ## Features
 
