@@ -1,9 +1,12 @@
+import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from server.exceptions import PromptInvocationError
 from server.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 
 TArguments = TypeVar("TArguments", bound=BaseModel)
@@ -48,3 +51,18 @@ class Prompt(Generic[TArguments]):
             description=self.description,
             arguments=self.arguments,
         )
+
+    async def invoke(self, arguments: dict) -> tuple[PromptMessage, ...]:
+        try:
+            _arguments = self.arguments_type.model_validate(arguments)
+        except ValidationError as e:
+            raise PromptInvocationError(self.name, e) from e
+
+        try:
+            if inspect.iscoroutinefunction(self.func):
+                return await self.func(_arguments)
+
+            _func = cast(Callable[[TArguments], tuple[PromptMessage, ...]], self.func)
+            return await asyncio.to_thread(_func, _arguments)
+        except Exception as e:
+            raise PromptInvocationError(self.name, e) from e
