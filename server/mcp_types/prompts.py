@@ -40,7 +40,7 @@ class ProtocolPrompt(BaseModel):
 class PromptListResult(BaseModel):
     prompts: tuple[ProtocolPrompt, ...]
     next_cursor: str | None = Field(
-        serialization_alias="nextCursor", alias_priority=1, default=None
+        serialization_alias="nextCursor", alias_priority=1, default=None,
     )
 
 
