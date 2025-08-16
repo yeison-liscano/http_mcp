@@ -1,5 +1,6 @@
 import json
 import logging
+from http import HTTPStatus
 
 from pydantic import ValidationError
 from starlette.requests import Request
@@ -12,6 +13,7 @@ from server.mcp_types.messages import (
 )
 from server.server_interface import ServerInterface
 from server.transport_base import BaseTransport
+from server.transport_types import ErrorResponseInfo, ProtocolErrorCode
 
 LOGGER = logging.getLogger(__name__)
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
@@ -31,9 +33,13 @@ class HTTPTransport(BaseTransport):
                 LOGGER.error("Unsupported Media Type: %s", content_type)
                 await self._send_error_response(
                     send,
-                    -32000,
-                    "Unsupported Media Type: Content-Type must be application/json",
-                    415,
+                    ErrorResponseInfo(
+                        message_id="unknown",
+                        protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                        http_status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                        message="Unsupported Media Type: Content-Type must be application/json",
+                        headers={"Content-Type": "application/json"},
+                    ),
                 )
                 return
             await self._handle_post_request(request, send)
@@ -46,9 +52,12 @@ class HTTPTransport(BaseTransport):
             LOGGER.error("Request body too large")
             await self._send_error_response(
                 send,
-                -32000,
-                f"Request body too large. Maximum size is {MAXIMUM_MESSAGE_SIZE} bytes.",
-                413,
+                ErrorResponseInfo(
+                    message_id="unknown",
+                    protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                    http_status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    message="Request body too large.",
+                ),
             )
             return
 
@@ -57,9 +66,12 @@ class HTTPTransport(BaseTransport):
         except json.JSONDecodeError:
             await self._send_error_response(
                 send,
-                -32700,
-                "Parse error: Invalid body",
-                400,
+                ErrorResponseInfo(
+                    message_id="unknown",
+                    protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    message="Parse error: Invalid body",
+                ),
             )
             return
 
@@ -96,11 +108,19 @@ class HTTPTransport(BaseTransport):
                 return None
         except ValidationError:
             LOGGER.exception("Error validating message")
+            is_invalid_method = raw_message.get("method", "") not in self.supported_methods
             await self._send_error_response(
                 send,
-                -32700,
-                "Error validating message request",
-                400,
+                ErrorResponseInfo(
+                    message_id=raw_message.get("id", "unknown"),
+                    protocol_code= (
+                        ProtocolErrorCode.METHOD_NOT_FOUND
+                        if is_invalid_method
+                        else ProtocolErrorCode.INVALID_PARAMS
+                    ),
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    message="Error validating message request",
+                ),
             )
             return None
         else:
@@ -139,36 +159,42 @@ class HTTPTransport(BaseTransport):
                 "status": 405,
                 "headers": [
                     (b"allow", b"POST"),
+                    (b"content-type", b"text/plain"),
                 ],
             },
         )
-        await send({"type": "http.response.body", "body": b""})
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"Method Not Allowed",
+                "more_body": False,
+            },
+        )
 
     async def _send_error_response(
         self,
         send: Send,
-        code: int,
-        message: str,
-        status_code: int = 400,
-        headers: dict[str, str] | None = None,
+        error_info: ErrorResponseInfo,
     ) -> None:
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=0,
+            id=error_info.message_id,
             error=Error(
-                code=code,
-                message=message,
+                code=error_info.protocol_code.value,
+                message=error_info.message,
             ),
         )
 
         response_headers = [(b"content-type", b"application/json")]
-        if headers:
-            response_headers.extend([(k.lower().encode(), v.encode()) for k, v in headers.items()])
+        if error_info.headers:
+            response_headers.extend(
+                [(k.lower().encode(), v.encode()) for k, v in error_info.headers.items()],
+            )
 
         await send(
             {
                 "type": "http.response.start",
-                "status": status_code,
+                "status": error_info.http_status_code.value,
                 "headers": response_headers,
             },
         )
