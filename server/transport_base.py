@@ -4,7 +4,9 @@ import logging
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.messages import (
+from server.exceptions import ToolError
+from server.mcp_types.content import TextContent
+from server.mcp_types.messages import (
     Error,
     InitializationRequest,
     InitializeResponse,
@@ -13,21 +15,20 @@ from server.messages import (
     JSONRPCMessage,
     JSONRPCRequest,
     ServerInfo,
-    TextContent,
 )
-from server.prompts import (
+from server.mcp_types.prompts import (
     PromptGetRequest,
     PromptsGetResponse,
     PromptsListResponse,
 )
-from server.server_interface import ServerInterface
-from server.tools import (
+from server.mcp_types.tools import (
     ToolsCallRequest,
     ToolsCallResponse,
     ToolsCallResult,
     ToolsListResponse,
     ToolsListResult,
 )
+from server.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,15 +55,6 @@ class BaseTransport:
                     return await self._process_tools_request(message, request)
                 if message.method.startswith("prompts/"):
                     return await self._process_prompts_request(message)
-
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=message.id,
-                error=Error(
-                    code=-32601,
-                    message=f"Method not supported: {message.method}",
-                ),
-            )
         except Exception:
             LOGGER.exception("Error processing request")
             return JSONRPCError(
@@ -71,6 +63,16 @@ class BaseTransport:
                 error=Error(
                     code=-32603,
                     message="Internal error",
+                ),
+            )
+
+        else:
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=-32601,
+                    message=f"Method not supported: {message.method}",
                 ),
             )
 
@@ -128,7 +130,7 @@ class BaseTransport:
                 result=result,
             )
         if message.method == "prompts/get" and message.params:
-            validated_message = PromptGetRequest.model_validate(message)
+            validated_message = PromptGetRequest.model_validate(message.model_dump())
             prompt_result = await self._server.get_prompt(
                 validated_message.params.name,
                 validated_message.params.arguments,
@@ -154,7 +156,7 @@ class BaseTransport:
         request: Request,
     ) -> JSONRPCMessage | JSONRPCError:
         if message.method == "tools/list":
-            tools = await self._server.list_tools()
+            tools = self._server.list_tools()
             return ToolsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
@@ -207,6 +209,16 @@ class BaseTransport:
                     content=(TextContent(type="text", text=returned_value.model_dump_json()),),
                     is_error=False,
                     structured_content=returned_value.model_dump(mode="json"),
+                ),
+            )
+        except ToolError as e:
+            LOGGER.exception("Error calling tool %s", name)
+            return ToolsCallResponse(
+                jsonrpc="2.0",
+                id=message.id,
+                result=ToolsCallResult(
+                    content=(TextContent(type="text", text=e.message),),
+                    is_error=True,
                 ),
             )
         except Exception:

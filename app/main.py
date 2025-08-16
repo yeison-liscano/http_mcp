@@ -4,12 +4,13 @@ import os
 import uvicorn
 from starlette.applications import Starlette
 
+from app.prompts import PROMPTS
 from app.tools import TOOLS, Context
 from server.server import MCPServer
 
 app = Starlette()
 context = Context(called_tools=[])
-mcp_server = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=context)
+mcp_server = MCPServer(tools=TOOLS, prompts=PROMPTS, name="test", version="1.0.0", context=context)
 
 app.mount(
     "/mcp",

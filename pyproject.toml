@@ -2,7 +2,7 @@
 authors = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
 name = "project"
 version = "0.0.1"
-description = "This is a base python project environment configuration using uv"
+description = "This is a HTTP implementation of the MCP protocol in python"
 requires-python = ">=3.13,<3.14"
 
 dependencies = ["pydantic==2.10.5", "uvicorn==0.35.0", "starlette==0.47.2"]
@@ -11,7 +11,7 @@ dependencies = ["pydantic==2.10.5", "uvicorn==0.35.0", "starlette==0.47.2"]
 dev = ["httpx==0.28.1", "mypy==1.9.0", "pytest==8.4.1", "ruff==0.9.10"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["server"]
+packages = ["."]
 
 [project.scripts]
 run-app = "app.main:run_http"

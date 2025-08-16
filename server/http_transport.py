@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 
@@ -6,7 +5,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.messages import (
+from server.mcp_types.messages import (
     Error,
     JSONRPCError,
     JSONRPCRequest,
@@ -26,25 +25,25 @@ class HTTPTransport(BaseTransport):
         request = Request(scope, receive)
 
         if request.method == "POST":
+            content_type = request.headers.get("content-type")
+            # Not support for SSE
+            if not content_type or "application/json" not in content_type:
+                LOGGER.error("Unsupported Media Type: %s", content_type)
+                await self._send_error_response(
+                    send,
+                    -32000,
+                    "Unsupported Media Type: Content-Type must be application/json",
+                    415,
+                )
+                return
             await self._handle_post_request(request, send)
         else:
             await self._handle_unsupported_request(send)
 
     async def _handle_post_request(self, request: Request, send: Send) -> None:
-        content_type = request.headers.get("content-type")
-
-        # we only support HTTP
-        if not content_type or "application/json" not in content_type:
-            await self._send_error_response(
-                send,
-                -32000,
-                "Unsupported Media Type: Content-Type must be application/json",
-                415,
-            )
-            return
-
         body = await request.body()
         if len(body) > MAXIMUM_MESSAGE_SIZE:
+            LOGGER.error("Request body too large")
             await self._send_error_response(
                 send,
                 -32000,
@@ -68,71 +67,52 @@ class HTTPTransport(BaseTransport):
 
     async def _handle_raw_message(
         self,
-        raw_message: dict | list[dict],
+        raw_message: dict,
         send: Send,
         request: Request,
     ) -> None:
-        messages: list[JSONRPCRequest] = []
-        if isinstance(raw_message, list):
-            # An array batching
-            for msg in raw_message:
-                try:
-                    if not msg.get("method", "").startswith("notifications/"):
-                        messages.append(JSONRPCRequest.model_validate(msg))
-                except ValidationError as e:
-                    LOGGER.exception("Error validating message")
-                    await self._send_error_response(
-                        send,
-                        -32700,
-                        json.dumps(e.errors()),
-                        400,
-                    )
-                    return
-        else:
-            try:
-                if raw_message.get("method", "").startswith("notifications/"):
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": 200,
-                            "headers": [(b"content-type", b"application/json")],
-                        },
-                    )
-
-                    await send(
-                        {
-                            "type": "http.response.body",
-                            "body": b"",
-                            "more_body": False,
-                        },
-                    )
-                    return
-                request_message = JSONRPCRequest.model_validate(raw_message)
-                if request_message.method == "initialize":
-                    await self._handle_initialization_request(request_message, send)
-                    return
-                messages.append(request_message)
-            except ValidationError:
-                LOGGER.exception("Error validating message")
-                await self._send_error_response(
-                    send,
-                    -32700,
-                    "Error validating message request",
-                    400,
+        try:
+            if raw_message.get("method", "").startswith("notifications/"):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"application/json")],
+                    },
                 )
-                return
 
-        await self._process_messages(messages, send, request)
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"",
+                        "more_body": False,
+                    },
+                )
+                return None
+
+            request_message = JSONRPCRequest.model_validate(raw_message)
+            if request_message.method == "initialize":
+                await self._handle_initialization_request(request_message, send)
+                return None
+        except ValidationError:
+            LOGGER.exception("Error validating message")
+            await self._send_error_response(
+                send,
+                -32700,
+                "Error validating message request",
+                400,
+            )
+            return None
+        else:
+            return await self._process_messages(request_message, send, request)
 
     async def _process_messages(
         self,
-        messages: list[JSONRPCRequest],
+        message: JSONRPCRequest,
         send: Send,
         request: Request,
     ) -> None:
-        responses = await asyncio.gather(
-            *[self._process_request(message, request) for message in messages],
-        )
+        response = await self._process_request(message, request)
 
         await send(
             {
@@ -144,29 +124,10 @@ class HTTPTransport(BaseTransport):
             },
         )
 
-        if len(responses) == 1:
-            await send(
-                {
-                    "type": "http.response.body",
-                    "body": responses[0]
-                    .model_dump_json(by_alias=True, exclude_none=True)
-                    .encode("utf-8"),
-                    "more_body": False,
-                },
-            )
-            return
-
         await send(
             {
                 "type": "http.response.body",
-                "body": json.dumps(
-                    [
-                        response.model_dump_json(by_alias=True, exclude_none=True)
-                        for response in responses
-                    ]
-                ).encode(
-                    "utf-8",
-                ),
+                "body": response.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8"),
                 "more_body": False,
             },
         )

@@ -4,8 +4,9 @@ from typing import Generic
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from server.models import ServerCapabilities, TToolsContext
-from server.prompts import PromptGetResult, PromptListResult
+from server.mcp_types.capabilities import ServerCapabilities
+from server.mcp_types.prompts import PromptGetResult, PromptListResult
+from server.tools import TToolsContext
 
 
 class ServerInterface(ABC, Generic[TToolsContext]):
@@ -40,7 +41,7 @@ class ServerInterface(ABC, Generic[TToolsContext]):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_tools(self) -> tuple[dict, ...]:
+    def list_tools(self) -> tuple[dict, ...]:
         raise NotImplementedError
 
     @abstractmethod

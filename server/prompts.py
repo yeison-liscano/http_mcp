@@ -1,61 +1,68 @@
-from typing import Literal
+import asyncio
+import inspect
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Generic, TypeVar, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ValidationError
 
-from server.messages import JSONRPCMessage, JSONRPCRequest, TextContent
+from server.exceptions import PromptInvocationError
+from server.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 
-
-class PromptGetRequestParams(BaseModel):
-    name: str
-    arguments: dict
-
-
-class PromptGetRequest(JSONRPCRequest):
-    method: Literal["prompts/get"]
-    params: PromptGetRequestParams
+TArguments = TypeVar("TArguments", bound=BaseModel)
 
 
-class PromptListRequestParams(BaseModel):
-    cursor: str | None = None
+@dataclass
+class Prompt(Generic[TArguments]):
+    func: Callable[[TArguments], Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...]]
+    arguments_type: type[TArguments]
 
+    @property
+    def arguments(self) -> tuple[PromptArgument, ...]:
+        schema = self.arguments_type.model_json_schema()
 
-class PromptListRequest(JSONRPCRequest):
-    method: Literal["prompts/list"]
+        required = schema["required"]
 
+        return tuple(
+            PromptArgument(
+                name=name,
+                description=values.get("description", name.title()),
+                required=name in required,
+            )
+            for name, values in self.arguments_type.model_json_schema()["properties"].items()
+        )
 
-class PromptArgument(BaseModel):
-    name: str
-    description: str
-    required: bool
+    @property
+    def name(self) -> str:
+        return self.func.__name__
 
+    @property
+    def title(self) -> str:
+        return self.name.replace("_", " ").title()
 
-class Prompt(BaseModel):
-    name: str
-    title: str
-    description: str
-    arguments: tuple[PromptArgument, ...]
+    @property
+    def description(self) -> str:
+        return self.func.__doc__ or self.title
 
+    def to_prompt_protocol_object(self) -> ProtocolPrompt:
+        return ProtocolPrompt(
+            name=self.name,
+            title=self.title,
+            description=self.description,
+            arguments=self.arguments,
+        )
 
-class PromptListResult(BaseModel):
-    prompts: tuple[Prompt, ...]
-    next_cursor: str | None = Field(
-        serialization_alias="nextCursor", alias_priority=1, default=None
-    )
+    async def invoke(self, arguments: dict) -> tuple[PromptMessage, ...]:
+        try:
+            _arguments = self.arguments_type.model_validate(arguments)
+        except ValidationError as e:
+            raise PromptInvocationError(self.name, e) from e
 
+        try:
+            if inspect.iscoroutinefunction(self.func):
+                return await self.func(_arguments)
 
-class PromptsListResponse(JSONRPCMessage):
-    result: PromptListResult
-
-
-class PromptMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: TextContent
-
-
-class PromptGetResult(BaseModel):
-    description: str
-    messages: tuple[PromptMessage, ...]
-
-
-class PromptsGetResponse(JSONRPCMessage):
-    result: PromptGetResult
+            _func = cast(Callable[[TArguments], tuple[PromptMessage, ...]], self.func)
+            return await asyncio.to_thread(_func, _arguments)
+        except Exception as e:
+            raise PromptInvocationError(self.name, e) from e

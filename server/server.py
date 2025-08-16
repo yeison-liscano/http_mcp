@@ -2,18 +2,18 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.models import (
-    Capability,
-    ServerCapabilities,
-    Tool,
-    TToolsArguments_co,
-    TToolsContext,
-    TToolsOutput_co,
-)
-from server.prompts import PromptGetResult, PromptListResult
+from server.http_transport import HTTPTransport
+from server.mcp_types.capabilities import Capability, ServerCapabilities
+from server.mcp_types.prompts import PromptGetResult, PromptListResult
+from server.prompts import Prompt
 from server.server_interface import ServerInterface
 from server.stdio_transport import StdioTransport
-from server.transport import HTTPTransport
+from server.tools import (
+    TArguments_co,
+    Tool,
+    TOutput_co,
+    TToolsContext,
+)
 
 
 class MCPServer(ServerInterface[TToolsContext]):
@@ -21,13 +21,15 @@ class MCPServer(ServerInterface[TToolsContext]):
         self,
         name: str,
         version: str,
-        tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
-        context: TToolsContext,
+        tools: tuple[Tool[TArguments_co, TToolsContext, TOutput_co], ...] = (),
+        prompts: tuple[Prompt, ...] = (),
+        context: TToolsContext | None = None,
     ) -> None:
         self._version = version
         self._name = name
         self._context = context
         self._tools = tools
+        self._prompts = prompts
         self._http_transport = HTTPTransport(self)
         self._stdio_transport = StdioTransport(self)
 
@@ -36,19 +38,6 @@ class MCPServer(ServerInterface[TToolsContext]):
 
     async def serve_stdio(self, request_headers: dict[str, str] | None = None) -> None:
         await self._stdio_transport.start(request_headers)
-
-    async def call_tool(
-        self,
-        tool_name: str,
-        args: dict,
-        request: Request,
-        context: TToolsContext,
-    ) -> BaseModel:
-        tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
-        return await tool.invoque(args, request, context)
-
-    async def list_tools(self) -> tuple[dict, ...]:
-        return tuple(_tool.generate_json_schema() for _tool in self._tools)
 
     @property
     def context(self) -> TToolsContext | None:
@@ -66,12 +55,33 @@ class MCPServer(ServerInterface[TToolsContext]):
     def capabilities(self) -> ServerCapabilities:
         capability = Capability(list_changed=False, subscribe=False)
         return ServerCapabilities(
-            prompts=None,
+            prompts=capability if self._prompts else None,
             tools=capability if self._tools else None,
         )
 
+    def list_tools(self) -> tuple[dict, ...]:
+        return tuple(_tool.generate_json_schema() for _tool in self._tools)
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        args: dict,
+        request: Request,
+        context: TToolsContext,
+    ) -> BaseModel:
+        tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
+        return await tool.invoke(args, request, context)
+
     def list_prompts(self) -> PromptListResult:
-        raise NotImplementedError
+        return PromptListResult(
+            prompts=tuple(_prompt.to_prompt_protocol_object() for _prompt in self._prompts),
+            next_cursor=None,
+        )
 
     async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
-        raise NotImplementedError
+        _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
+        result = await _prompt.invoke(arguments)
+        return PromptGetResult(
+            description=_prompt.description,
+            messages=result,
+        )

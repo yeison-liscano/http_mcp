@@ -4,8 +4,8 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from server.models import Tool, ToolArguments
 from server.server import MCPServer
+from server.tools import Tool, ToolArguments
 
 
 class TestTool1Arguments(BaseModel):
