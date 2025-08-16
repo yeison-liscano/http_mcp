@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.messages import (
+from server.mcp_types.messages import (
     Error,
     JSONRPCError,
     JSONRPCRequest,

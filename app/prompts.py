@@ -1,7 +1,8 @@
 from pydantic import BaseModel, Field
 
-from server.content import TextContent
-from server.prompts import Prompt, PromptMessage
+from server.mcp_types.content import TextContent
+from server.mcp_types.prompts import PromptMessage
+from server.prompts import Prompt
 
 
 class GetAdvice(BaseModel):

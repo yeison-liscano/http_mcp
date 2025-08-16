@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from server.capabilities import ServerCapabilities  # noqa: TC001
+from server.mcp_types.capabilities import ServerCapabilities  # noqa: TC001
 
 
 class JSONRPCMessage(BaseModel):

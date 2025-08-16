@@ -4,17 +4,18 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.capabilities import Capability, ServerCapabilities
-from server.models import (
+from server.http_transport import HTTPTransport
+from server.mcp_types.capabilities import Capability, ServerCapabilities
+from server.mcp_types.prompts import PromptGetResult, PromptListResult, PromptMessage
+from server.prompts import Prompt
+from server.server_interface import ServerInterface
+from server.stdio_transport import StdioTransport
+from server.tools import (
     TArguments_co,
     Tool,
     TOutput_co,
     TToolsContext,
 )
-from server.prompts import Prompt, PromptGetResult, PromptListResult, PromptMessage
-from server.server_interface import ServerInterface
-from server.stdio_transport import StdioTransport
-from server.transport import HTTPTransport
 
 
 class MCPServer(ServerInterface[TToolsContext]):

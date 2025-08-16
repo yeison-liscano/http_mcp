@@ -2,8 +2,8 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from server.models import Tool, ToolArguments
 from server.server import MCPServer
+from server.tools import Tool, ToolArguments
 from tests.models import TestToolArguments, TestToolOutput
 
 

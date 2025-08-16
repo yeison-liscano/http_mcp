@@ -4,9 +4,9 @@ from typing import Generic
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from server.capabilities import ServerCapabilities
-from server.models import TToolsContext
-from server.prompts import PromptGetResult, PromptListResult
+from server.mcp_types.capabilities import ServerCapabilities
+from server.mcp_types.prompts import PromptGetResult, PromptListResult
+from server.tools import TToolsContext
 
 
 class ServerInterface(ABC, Generic[TToolsContext]):

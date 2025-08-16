@@ -4,8 +4,8 @@ import logging
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.content import TextContent
-from server.messages import (
+from server.mcp_types.content import TextContent
+from server.mcp_types.messages import (
     Error,
     InitializationRequest,
     InitializeResponse,
@@ -15,19 +15,19 @@ from server.messages import (
     JSONRPCRequest,
     ServerInfo,
 )
-from server.prompts import (
+from server.mcp_types.prompts import (
     PromptGetRequest,
     PromptsGetResponse,
     PromptsListResponse,
 )
-from server.server_interface import ServerInterface
-from server.tools import (
+from server.mcp_types.tools import (
     ToolsCallRequest,
     ToolsCallResponse,
     ToolsCallResult,
     ToolsListResponse,
     ToolsListResult,
 )
+from server.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
 

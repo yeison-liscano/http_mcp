@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from server.models import Tool, ToolArguments
+from server.tools import Tool, ToolArguments
 
 
 @dataclass

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.messages import (
+from server.mcp_types.messages import (
     Error,
     JSONRPCError,
     JSONRPCMessage,
