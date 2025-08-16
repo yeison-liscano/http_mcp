@@ -1,12 +1,10 @@
-import inspect
-
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
 from server.http_transport import HTTPTransport
 from server.mcp_types.capabilities import Capability, ServerCapabilities
-from server.mcp_types.prompts import PromptGetResult, PromptListResult, PromptMessage
+from server.mcp_types.prompts import PromptGetResult, PromptListResult
 from server.prompts import Prompt
 from server.server_interface import ServerInterface
 from server.stdio_transport import StdioTransport
@@ -41,19 +39,6 @@ class MCPServer(ServerInterface[TToolsContext]):
     async def serve_stdio(self, request_headers: dict[str, str] | None = None) -> None:
         await self._stdio_transport.start(request_headers)
 
-    async def call_tool(
-        self,
-        tool_name: str,
-        args: dict,
-        request: Request,
-        context: TToolsContext,
-    ) -> BaseModel:
-        tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
-        return await tool.invoque(args, request, context)
-
-    async def list_tools(self) -> tuple[dict, ...]:
-        return tuple(_tool.generate_json_schema() for _tool in self._tools)
-
     @property
     def context(self) -> TToolsContext | None:
         return self._context
@@ -74,6 +59,19 @@ class MCPServer(ServerInterface[TToolsContext]):
             tools=capability if self._tools else None,
         )
 
+    def list_tools(self) -> tuple[dict, ...]:
+        return tuple(_tool.generate_json_schema() for _tool in self._tools)
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        args: dict,
+        request: Request,
+        context: TToolsContext,
+    ) -> BaseModel:
+        tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
+        return await tool.invoke(args, request, context)
+
     def list_prompts(self) -> PromptListResult:
         return PromptListResult(
             prompts=tuple(_prompt.to_prompt_protocol_object() for _prompt in self._prompts),
@@ -82,13 +80,7 @@ class MCPServer(ServerInterface[TToolsContext]):
 
     async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
         _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
-        result: tuple[PromptMessage, ...]
-        _result = _prompt.func(_prompt.arguments_type.model_validate(arguments))
-        if inspect.isawaitable(_result):
-            result = await _result
-        else:
-            result = _result  # type: ignore[assignment]
-
+        result = await _prompt.invoke(arguments)
         return PromptGetResult(
             description=_prompt.description,
             messages=result,

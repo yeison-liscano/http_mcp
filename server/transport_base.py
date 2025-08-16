@@ -4,6 +4,7 @@ import logging
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from server.exceptions import ToolError
 from server.mcp_types.content import TextContent
 from server.mcp_types.messages import (
     Error,
@@ -154,7 +155,7 @@ class BaseTransport:
         request: Request,
     ) -> JSONRPCMessage | JSONRPCError:
         if message.method == "tools/list":
-            tools = await self._server.list_tools()
+            tools =  self._server.list_tools()
             return ToolsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
@@ -207,6 +208,16 @@ class BaseTransport:
                     content=(TextContent(type="text", text=returned_value.model_dump_json()),),
                     is_error=False,
                     structured_content=returned_value.model_dump(mode="json"),
+                ),
+            )
+        except ToolError as e:
+            LOGGER.exception("Error calling tool %s", name)
+            return ToolsCallResponse(
+                jsonrpc="2.0",
+                id=message.id,
+                result=ToolsCallResult(
+                    content=(TextContent(type="text", text=e.message),),
+                    is_error=True,
                 ),
             )
         except Exception:

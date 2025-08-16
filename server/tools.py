@@ -1,12 +1,13 @@
+import asyncio
+import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
-from server.mcp_types.content import TextContent
-from server.mcp_types.prompts import PromptArgument, ProtocolPrompt
+from server.exceptions import ToolInvocationError
 
 TToolsContext = TypeVar("TToolsContext")
 TArguments_co = TypeVar("TArguments_co", bound=BaseModel, covariant=True)
@@ -22,7 +23,9 @@ class ToolArguments(Generic[TArguments_co, TToolsContext]):
 
 @dataclass
 class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
-    func: Callable[[ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co]]
+    func: Callable[
+        [ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co] | TOutput_co
+    ]
     input: type[TArguments_co]
     output: type[TOutput_co]
 
@@ -60,14 +63,28 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
         schema["title"] = self.name + "Output"
         return schema
 
-    async def invoque(
+    async def invoke(
         self,
         args: dict,
         request: Request,
         context: TToolsContext,
     ) -> TOutput_co:
-        validated_args = self.input.model_validate(args)
-        return await self.func(ToolArguments(request, validated_args, context))
+        try:
+            validated_args = self.input.model_validate(args)
+        except ValidationError as e:
+            raise ToolInvocationError(self.name, e) from e
+
+        try:
+            _args = ToolArguments(request, validated_args, context)
+            if inspect.iscoroutinefunction(self.func):
+                return await self.func(_args)
+
+            _func = cast(
+                Callable[[ToolArguments[TArguments_co, TToolsContext]], TOutput_co], self.func
+            )
+            return await asyncio.to_thread(_func, _args)
+        except Exception as e:
+            raise ToolInvocationError(self.name, e) from e
 
     def generate_json_schema(self) -> dict:
         return {
@@ -79,37 +96,3 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
             "annotations": self.annotations,
             "meta": None,
         }
-
-
-@dataclass
-class Prompt(Generic[TArguments_co]):
-    func: Callable[[TArguments_co], Awaitable[TextContent] | TextContent]
-    arguments: type[TArguments_co]
-
-    @property
-    def title(self) -> str:
-        return self.name.replace("_", " ").title()
-
-    @property
-    def description(self) -> str:
-        return self.arguments.model_json_schema()["description"]
-
-    @property
-    def name(self) -> str:
-        return self.func.__name__
-
-    def to_prompt_protocol_object(self) -> ProtocolPrompt:
-        return ProtocolPrompt(
-            name=self.name,
-            title=self.title,
-            description=self.description,
-            arguments=tuple(
-                PromptArgument(
-                    name=arg.name,
-                    description=arg.description,
-                    required=arg.required,
-                )
-                for arg in self.arguments.model_json_schema()["properties"].values()
-            ),
-        )
-

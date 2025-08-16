@@ -41,7 +41,7 @@ class ServerInterface(ABC, Generic[TToolsContext]):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_tools(self) -> tuple[dict, ...]:
+    def list_tools(self) -> tuple[dict, ...]:
         raise NotImplementedError
 
     @abstractmethod
