@@ -177,7 +177,7 @@ class HTTPTransport(BaseTransport):
             {
                 "type": "http.response.body",
                 "body": error_response.model_dump_json(by_alias=True, exclude_none=True).encode(
-                    "utf-8"
+                    "utf-8",
                 ),
                 "more_body": False,
             },

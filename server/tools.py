@@ -7,7 +7,7 @@ from typing import Generic, TypeVar, cast
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
-from server.exceptions import ToolInvocationError
+from server.exceptions import ArgumentsError, ToolInvocationError
 
 TToolsContext = TypeVar("TToolsContext")
 TArguments_co = TypeVar("TArguments_co", bound=BaseModel, covariant=True)
@@ -24,7 +24,7 @@ class ToolArguments(Generic[TArguments_co, TToolsContext]):
 @dataclass
 class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
     func: Callable[
-        [ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co] | TOutput_co
+        [ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co] | TOutput_co,
     ]
     input: type[TArguments_co]
     output: type[TOutput_co]
@@ -72,7 +72,7 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
         try:
             validated_args = self.input.model_validate(args)
         except ValidationError as e:
-            raise ToolInvocationError(self.name, e) from e
+            raise ArgumentsError("tool", self.name, e.json()) from e
 
         try:
             _args = ToolArguments(request, validated_args, context)
@@ -80,11 +80,11 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
                 return await self.func(_args)
 
             _func = cast(
-                Callable[[ToolArguments[TArguments_co, TToolsContext]], TOutput_co], self.func
+                Callable[[ToolArguments[TArguments_co, TToolsContext]], TOutput_co], self.func,
             )
             return await asyncio.to_thread(_func, _args)
         except Exception as e:
-            raise ToolInvocationError(self.name, e) from e
+            raise ToolInvocationError(self.name, "Unknown error") from e
 
     def generate_json_schema(self) -> dict:
         return {

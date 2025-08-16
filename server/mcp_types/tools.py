@@ -9,7 +9,7 @@ from server.mcp_types.messages import JSONRPCMessage, JSONRPCRequest
 class ToolsListResult(BaseModel):
     tools: tuple[dict, ...]
     next_cursor: str | None = Field(
-        serialization_alias="nextCursor", default=None, alias_priority=1
+        serialization_alias="nextCursor", default=None, alias_priority=1,
     )
 
 
@@ -21,7 +21,7 @@ class ToolsCallResult(BaseModel):
     content: tuple[TextContent, ...]
     is_error: bool = Field(serialization_alias="isError", alias_priority=1)
     structured_content: dict[str, Any] | None = Field(
-        serialization_alias="structuredContent", default=None, alias_priority=1
+        serialization_alias="structuredContent", default=None, alias_priority=1,
     )
 
 

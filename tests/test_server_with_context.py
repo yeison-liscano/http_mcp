@@ -60,7 +60,7 @@ def test_server_call_tool() -> None:
                 {
                     "type": "text",
                     "text": '{"answer":"Hello, What is the meaning of life?!"}',
-                }
+                },
             ],
             "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
             "isError": False,

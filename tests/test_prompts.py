@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
@@ -16,23 +17,45 @@ class TestArguments(BaseModel):
     argument_4: float = Field(description="The fourth argument", default=1.0)
 
 
-def prompt_1(arg: TestArguments) -> tuple[PromptMessage, ...]:
-    """Test prompt."""
+def prompt_sync(arg: TestArguments) -> tuple[PromptMessage, ...]:
+    """Test prompt sync."""
     return (PromptMessage(role="user", content=TextContent(text=arg.model_dump_json())),)
 
 
-PROMPT = Prompt(
-    func=prompt_1,
+async def prompt_async(arg: TestArguments) -> tuple[PromptMessage, ...]:
+    """Test prompt async."""
+    return (PromptMessage(role="user", content=TextContent(text=arg.model_dump_json())),)
+
+
+def prompt_that_raises_error(_arg: TestArguments) -> tuple[PromptMessage, ...]:
+    """Test prompt that raises an error."""
+    raise ValueError
+
+
+PROMPT_SYNC = Prompt(
+    func=prompt_sync,
+    arguments_type=TestArguments,
+)
+
+PROMPT_ASYNC = Prompt(
+    func=prompt_async,
     arguments_type=TestArguments,
 )
 
 
-def test_prompt_list() -> None:
-    server = MCPServer[None]( # type: ignore [misc]
+PROMPT_ERROR = Prompt(
+    func=prompt_that_raises_error,
+    arguments_type=TestArguments,
+)
+
+
+@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+def test_prompt_list(prompt: Prompt) -> None:
+    server = MCPServer[None](  # type: ignore [misc]
         tools=(),
         name="test",
         version="1.0.0",
-        prompts=(PROMPT,),
+        prompts=(prompt,),
     )
     client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
@@ -65,21 +88,22 @@ def test_prompt_list() -> None:
                             "required": False,
                         },
                     ],
-                    "description": "Test prompt.",
-                    "name": "prompt_1",
-                    "title": "Prompt 1",
+                    "description": prompt.description,
+                    "name": prompt.name,
+                    "title": prompt.title,
                 },
             ],
         },
     }
 
 
-def test_prompt_get() -> None:
+@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+def test_prompt_get(prompt: Prompt) -> None:
     server = MCPServer[None](  # type: ignore [misc]
         tools=(),
         name="test",
         version="1.0.0",
-        prompts=(PROMPT,),
+        prompts=(prompt,),
     )
     client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
@@ -89,7 +113,7 @@ def test_prompt_get() -> None:
             "method": "prompts/get",
             "id": 1,
             "params": {
-                "name": "prompt_1",
+                "name": prompt.name,
                 "arguments": {
                     "argument_1": 1,
                     "argument_2": "test",
@@ -106,7 +130,7 @@ def test_prompt_get() -> None:
         "id": 1,
         "jsonrpc": "2.0",
         "result": {
-            "description": "Test prompt.",
+            "description": prompt.description,
             "messages": [
                 {
                     "content": {
@@ -122,24 +146,15 @@ def test_prompt_get() -> None:
     }
 
 
-def test_prompts() -> None:
-    class TestArguments2(BaseModel):
-        argument_1: int = Field(description="The first argument")
-        argument_2: str = Field(description="The second argument")
-
-    def prompt_2(arg: TestArguments2) -> tuple[PromptMessage, ...]:
-        """Test prompt."""
-        return (PromptMessage(role="user", content=TextContent(text=arg.model_dump_json())),)
-
-    prompt = Prompt(
-        func=prompt_2,
-        arguments_type=TestArguments2,
-    )
-    server = MCPServer[None]( # type: ignore [misc]
+@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+def test_prompts(
+    prompt: Prompt,
+) -> None:
+    server = MCPServer[None](  # type: ignore [misc]
         tools=(),
         name="test",
         version="1.0.0",
-        prompts=(PROMPT, prompt),
+        prompts=(prompt,),
     )
 
     client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
@@ -150,7 +165,7 @@ def test_prompts() -> None:
             "method": "prompts/get",
             "id": 1,
             "params": {
-                "name": "prompt_1",
+                "name": prompt.name,
                 "arguments": {
                     "argument_1": 1,
                     "argument_2": "test",
@@ -167,7 +182,7 @@ def test_prompts() -> None:
         "id": 1,
         "jsonrpc": "2.0",
         "result": {
-            "description": "Test prompt.",
+            "description": prompt.description,
             "messages": [
                 {
                     "content": {
@@ -179,5 +194,82 @@ def test_prompts() -> None:
                     "role": "user",
                 },
             ],
+        },
+    }
+
+
+@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
+    server = MCPServer[None](  # type: ignore [misc]
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(prompt,),
+    )
+    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "prompts/get",
+            "id": 1,
+            "params": {
+                "name": prompt.name,
+                "arguments": {"invalid_field": "What is the meaning of life?"},
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32600,
+            "message": f"Protocol error: Error validating arguments for prompt {prompt.name}: "
+            '[{"type":"missing","loc":["argument_1"],"msg":"Field '
+            'required","input":{"invalid_field":"What is the meaning of '
+            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"},{"type":"missing","loc":'
+            '["argument_2"],"msg":"Field '
+            'required","input":{"invalid_field":"What is the meaning of '
+            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"}]',
+        },
+    }
+
+
+def test_server_call_prompt_with_error() -> None:
+    server = MCPServer[None](  # type: ignore [misc]
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(PROMPT_ERROR,),
+    )
+    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "prompts/get",
+            "id": 1,
+            "params": {
+                "name": PROMPT_ERROR.name,
+                "arguments": {
+                    "argument_1": 1,
+                    "argument_2": "test",
+                    "argument_3": False,
+                    "argument_4": 2.0,
+                },
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "description": "Server error: Error getting prompt prompt_that_raises_error: "
+            "Unknown error",
+            "messages": [],
         },
     }

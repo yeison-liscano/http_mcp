@@ -57,18 +57,18 @@ class StdioTransport(BaseTransport):
                     await asyncio.gather(
                         *[
                             self._handle_message(
-                                JSONRPCRequest.model_validate(msg), writer, request_headers
+                                JSONRPCRequest.model_validate(msg), writer, request_headers,
                             )
                             for msg in json_message
-                        ]
+                        ],
                     )
                 else:
                     await self._handle_message(
-                        JSONRPCRequest.model_validate(json_message), writer, request_headers
+                        JSONRPCRequest.model_validate(json_message), writer, request_headers,
                     )
             except ValidationError as e:
                 if isinstance(json_message, dict) and json_message.get("method", "").startswith(
-                    "notifications/"
+                    "notifications/",
                 ):
                     continue
 
@@ -78,7 +78,7 @@ class StdioTransport(BaseTransport):
                     error=Error(code=-32600, message=json.dumps(e.errors())),
                 )
                 await self._write_response(
-                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True)
+                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True),
                 )
             except json.JSONDecodeError:
                 error_response = JSONRPCError(
@@ -87,7 +87,7 @@ class StdioTransport(BaseTransport):
                     error=Error(code=-32700, message="Parse error"),
                 )
                 await self._write_response(
-                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True)
+                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True),
                 )
                 continue
 
@@ -135,5 +135,5 @@ class StdioTransport(BaseTransport):
         response = await process(JSONRPCRequest.model_validate(message.model_dump()))
         if response:
             await self._write_response(
-                writer, response.model_dump_json(by_alias=True, exclude_none=True)
+                writer, response.model_dump_json(by_alias=True, exclude_none=True),
             )
