@@ -2,26 +2,29 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from starlette.requests import Request
 
+from server.content import TextContent
+from server.prompts import PromptArgument, ProtocolPrompt
+
 TToolsContext = TypeVar("TToolsContext")
-TToolsArguments_co = TypeVar("TToolsArguments_co", bound=BaseModel, covariant=True)
-TToolsOutput_co = TypeVar("TToolsOutput_co", bound=BaseModel, covariant=True)
+TArguments_co = TypeVar("TArguments_co", bound=BaseModel, covariant=True)
+TOutput_co = TypeVar("TOutput_co", bound=BaseModel, covariant=True)
 
 
 @dataclass
-class ToolArguments(Generic[TToolsArguments_co, TToolsContext]):
+class ToolArguments(Generic[TArguments_co, TToolsContext]):
     request: Request
-    inputs: TToolsArguments_co
+    inputs: TArguments_co
     context: TToolsContext
 
 
 @dataclass
-class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
-    func: Callable[[ToolArguments[TToolsArguments_co, TToolsContext]], Awaitable[TToolsOutput_co]]
-    input: type[TToolsArguments_co]
-    output: type[TToolsOutput_co]
+class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
+    func: Callable[[ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co]]
+    input: type[TArguments_co]
+    output: type[TOutput_co]
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
@@ -62,7 +65,7 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
         args: dict,
         request: Request,
         context: TToolsContext,
-    ) -> TToolsOutput_co:
+    ) -> TOutput_co:
         validated_args = self.input.model_validate(args)
         return await self.func(ToolArguments(request, validated_args, context))
 
@@ -78,11 +81,35 @@ class Tool(Generic[TToolsArguments_co, TToolsContext, TToolsOutput_co]):
         }
 
 
-class Capability(BaseModel):
-    list_changed: bool = Field(serialization_alias="listChanged", alias_priority=1)
-    subscribe: bool = Field(serialization_alias="subscribe", alias_priority=1)
+@dataclass
+class Prompt(Generic[TArguments_co]):
+    func: Callable[[TArguments_co], Awaitable[TextContent] | TextContent]
+    arguments: type[TArguments_co]
 
+    @property
+    def title(self) -> str:
+        return self.name.replace("_", " ").title()
 
-class ServerCapabilities(BaseModel):
-    prompts: Capability | None = None
-    tools: Capability | None = None
+    @property
+    def description(self) -> str:
+        return self.arguments.model_json_schema()["description"]
+
+    @property
+    def name(self) -> str:
+        return self.func.__name__
+
+    def to_prompt_protocol_object(self) -> ProtocolPrompt:
+        return ProtocolPrompt(
+            name=self.name,
+            title=self.title,
+            description=self.description,
+            arguments=tuple(
+                PromptArgument(
+                    name=arg.name,
+                    description=arg.description,
+                    required=arg.required,
+                )
+                for arg in self.arguments.model_json_schema()["properties"].values()
+            ),
+        )
+

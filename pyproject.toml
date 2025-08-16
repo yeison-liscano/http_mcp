@@ -11,11 +11,12 @@ dependencies = ["pydantic==2.10.5", "uvicorn==0.35.0", "starlette==0.47.2"]
 dev = ["httpx==0.28.1", "mypy==1.9.0", "pytest==8.4.1", "ruff==0.9.10"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["server"]
+packages = ["."]
 
 [project.scripts]
 run-app = "app.main:run_http"
 run-stdio = "app.main:run_stdio"
+test = "server.prompts:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -4,6 +4,7 @@ import logging
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from server.content import TextContent
 from server.messages import (
     Error,
     InitializationRequest,
@@ -13,7 +14,6 @@ from server.messages import (
     JSONRPCMessage,
     JSONRPCRequest,
     ServerInfo,
-    TextContent,
 )
 from server.prompts import (
     PromptGetRequest,
@@ -128,7 +128,7 @@ class BaseTransport:
                 result=result,
             )
         if message.method == "prompts/get" and message.params:
-            validated_message = PromptGetRequest.model_validate(message)
+            validated_message = PromptGetRequest.model_validate(message.model_dump())
             prompt_result = await self._server.get_prompt(
                 validated_message.params.name,
                 validated_message.params.arguments,

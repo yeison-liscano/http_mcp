@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from server.models import ServerCapabilities  # noqa: TC001
+from server.capabilities import ServerCapabilities  # noqa: TC001
 
 
 class JSONRPCMessage(BaseModel):
@@ -34,11 +34,6 @@ class Error(BaseModel):
 
 class JSONRPCError(JSONRPCMessage):
     error: Error
-
-
-class TextContent(BaseModel):
-    text: str
-    type: Literal["text"] = "text"
 
 
 class InitializationRequest(JSONRPCRequest):

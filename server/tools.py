@@ -2,7 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from server.messages import JSONRPCMessage, JSONRPCRequest, TextContent
+from server.content import TextContent
+from server.messages import JSONRPCMessage, JSONRPCRequest
 
 
 class ToolsListResult(BaseModel):

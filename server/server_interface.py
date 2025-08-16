@@ -4,7 +4,8 @@ from typing import Generic
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from server.models import ServerCapabilities, TToolsContext
+from server.capabilities import ServerCapabilities
+from server.models import TToolsContext
 from server.prompts import PromptGetResult, PromptListResult
 
 

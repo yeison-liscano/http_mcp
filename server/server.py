@@ -1,16 +1,17 @@
+import inspect
+
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
+from server.capabilities import Capability, ServerCapabilities
 from server.models import (
-    Capability,
-    ServerCapabilities,
+    TArguments_co,
     Tool,
-    TToolsArguments_co,
+    TOutput_co,
     TToolsContext,
-    TToolsOutput_co,
 )
-from server.prompts import PromptGetResult, PromptListResult
+from server.prompts import Prompt, PromptGetResult, PromptListResult, PromptMessage
 from server.server_interface import ServerInterface
 from server.stdio_transport import StdioTransport
 from server.transport import HTTPTransport
@@ -21,13 +22,15 @@ class MCPServer(ServerInterface[TToolsContext]):
         self,
         name: str,
         version: str,
-        tools: tuple[Tool[TToolsArguments_co, TToolsContext, TToolsOutput_co], ...],
-        context: TToolsContext,
+        tools: tuple[Tool[TArguments_co, TToolsContext, TOutput_co], ...] = (),
+        prompts: tuple[Prompt, ...] = (),
+        context: TToolsContext | None = None,
     ) -> None:
         self._version = version
         self._name = name
         self._context = context
         self._tools = tools
+        self._prompts = prompts
         self._http_transport = HTTPTransport(self)
         self._stdio_transport = StdioTransport(self)
 
@@ -66,12 +69,26 @@ class MCPServer(ServerInterface[TToolsContext]):
     def capabilities(self) -> ServerCapabilities:
         capability = Capability(list_changed=False, subscribe=False)
         return ServerCapabilities(
-            prompts=None,
+            prompts=capability if self._prompts else None,
             tools=capability if self._tools else None,
         )
 
     def list_prompts(self) -> PromptListResult:
-        raise NotImplementedError
+        return PromptListResult(
+            prompts=tuple(_prompt.to_prompt_protocol_object() for _prompt in self._prompts),
+            next_cursor=None,
+        )
 
     async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
-        raise NotImplementedError
+        _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
+        result: tuple[PromptMessage, ...]
+        _result = _prompt.func(_prompt.arguments_type.model_validate(arguments))
+        if inspect.isawaitable(_result):
+            result = await _result
+        else:
+            result = _result  # type: ignore[assignment]
+
+        return PromptGetResult(
+            description=_prompt.description,
+            messages=result,
+        )
