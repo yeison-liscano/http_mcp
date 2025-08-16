@@ -4,7 +4,7 @@ import logging
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.exceptions import ToolError
+from server.exceptions import ProtocolError, ServerError
 from server.mcp_types.content import TextContent
 from server.mcp_types.messages import (
     Error,
@@ -18,6 +18,7 @@ from server.mcp_types.messages import (
 )
 from server.mcp_types.prompts import (
     PromptGetRequest,
+    PromptGetResult,
     PromptsGetResponse,
     PromptsListResponse,
 )
@@ -34,7 +35,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class BaseTransport:
-    supported_versions = ("2024-11-05", "2025-03-26", "2025-06-18")
+    supported_versions = ("2025-06-18",)
     supported_methods = ("initialize", "tools/list", "tools/call", "prompts/list", "prompts/get")
 
     def __init__(self, server: ServerInterface) -> None:
@@ -120,7 +121,7 @@ class BaseTransport:
         return response, status_code
 
     async def _process_prompts_request(
-        self, message: JSONRPCRequest
+        self, message: JSONRPCRequest,
     ) -> PromptsListResponse | JSONRPCError | PromptsGetResponse:
         if message.method == "prompts/list":
             result = self._server.list_prompts()
@@ -130,16 +131,32 @@ class BaseTransport:
                 result=result,
             )
         if message.method == "prompts/get" and message.params:
-            validated_message = PromptGetRequest.model_validate(message.model_dump())
-            prompt_result = await self._server.get_prompt(
-                validated_message.params.name,
-                validated_message.params.arguments,
-            )
-            return PromptsGetResponse(
-                jsonrpc="2.0",
-                id=message.id,
-                result=prompt_result,
-            )
+            try:
+                validated_message = PromptGetRequest.model_validate(message.model_dump())
+                prompt_result = await self._server.get_prompt(
+                    validated_message.params.name,
+                    validated_message.params.arguments,
+                )
+                return PromptsGetResponse(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    result=prompt_result,
+                )
+            except ServerError as e:
+                return PromptsGetResponse(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    result=PromptGetResult(
+                        description=e.message,
+                        messages=(),
+                    ),
+                )
+            except ProtocolError as e:
+                return JSONRPCError(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    error=Error(code=-32600, message=e.message),
+                )
 
         return JSONRPCError(
             jsonrpc="2.0",
@@ -211,23 +228,19 @@ class BaseTransport:
                     structured_content=returned_value.model_dump(mode="json"),
                 ),
             )
-        except ToolError as e:
+        except ProtocolError as e:
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(code=-32600, message=e.message),
+            )
+        except ServerError as e:
             LOGGER.exception("Error calling tool %s", name)
             return ToolsCallResponse(
                 jsonrpc="2.0",
                 id=message.id,
                 result=ToolsCallResult(
                     content=(TextContent(type="text", text=e.message),),
-                    is_error=True,
-                ),
-            )
-        except Exception:
-            LOGGER.exception("Error calling tool %s", name)
-            return ToolsCallResponse(
-                jsonrpc="2.0",
-                id=message.id,
-                result=ToolsCallResult(
-                    content=(TextContent(type="text", text="Error calling tool"),),
                     is_error=True,
                 ),
             )

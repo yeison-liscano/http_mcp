@@ -23,7 +23,7 @@ TOOLS_INITIALIZATION = (
 
 def test_server_capabilities_with_tools() -> None:
     server = MCPServer(
-        tools=TOOLS_INITIALIZATION, name="capabilities_test", version="1.0.0", context=None
+        tools=TOOLS_INITIALIZATION, name="capabilities_test", version="1.0.0", context=None,
     )
 
     capabilities = server.capabilities
@@ -49,7 +49,7 @@ def test_protocol_initialization() -> None:
             "id": 1,
             "method": "initialize",
             "params": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-06-18",
                 "capabilities": {"roots": {"listChanged": True}, "sampling": {}, "elicitation": {}},
                 "clientInfo": {
                     "name": "ExampleClient",
@@ -66,7 +66,7 @@ def test_protocol_initialization() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2025-06-18",
             "capabilities": {
                 "tools": {"listChanged": False, "subscribe": False},
             },

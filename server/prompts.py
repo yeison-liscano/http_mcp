@@ -6,7 +6,7 @@ from typing import Generic, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from server.exceptions import PromptInvocationError
+from server.exceptions import ArgumentsError, PromptInvocationError
 from server.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 
 TArguments = TypeVar("TArguments", bound=BaseModel)
@@ -56,7 +56,7 @@ class Prompt(Generic[TArguments]):
         try:
             _arguments = self.arguments_type.model_validate(arguments)
         except ValidationError as e:
-            raise PromptInvocationError(self.name, e) from e
+            raise ArgumentsError("prompt", self.name, e.json()) from e
 
         try:
             if inspect.iscoroutinefunction(self.func):
@@ -65,4 +65,4 @@ class Prompt(Generic[TArguments]):
             _func = cast(Callable[[TArguments], tuple[PromptMessage, ...]], self.func)
             return await asyncio.to_thread(_func, _arguments)
         except Exception as e:
-            raise PromptInvocationError(self.name, e) from e
+            raise PromptInvocationError(self.name, "Unknown error") from e

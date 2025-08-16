@@ -44,12 +44,19 @@ async def tool_1(args: ToolArguments[TestTool1Arguments, TestContext]) -> TestTo
     return TestTool1Output(answer=f"Hello, {args.inputs.question}!")
 
 
-async def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
+def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
     """Return a simple user information."""
     assert args.inputs.user_id == "123"
     assert args.context.called_tools == ["tool_1"]
     args.context.add_called_tool("tool_2")
     return TestTool2Output(user_id=args.inputs.user_id, email=f"{args.inputs.user_id}@example.com")
+
+
+def tool_that_raises_error(
+    _args: ToolArguments[TestTool1Arguments, TestContext],
+) -> TestTool1Output:
+    """Return a simple answer."""
+    raise ValueError
 
 
 TOOLS = (
@@ -95,7 +102,7 @@ def test_list_tools() -> None:
                                 "title": "Question",
                                 "type": "string",
                                 "description": "The question to answer",
-                            }
+                            },
                         },
                         "required": ["question"],
                     },
@@ -107,7 +114,7 @@ def test_list_tools() -> None:
                                 "title": "Answer",
                                 "type": "string",
                                 "description": "The answer to the question",
-                            }
+                            },
                         },
                         "required": ["answer"],
                     },
@@ -132,7 +139,7 @@ def test_list_tools() -> None:
                                 "title": "User Id",
                                 "type": "string",
                                 "description": "The user ID to get information about",
-                            }
+                            },
                         },
                         "required": ["user_id"],
                     },
@@ -168,7 +175,7 @@ def test_list_tools() -> None:
     }
 
 
-def test_server_call_tool_1() -> None:
+def test_server_call_tools() -> None:
     context = TestContext(called_tools=[])
     server = MCPServer(
         tools=TOOLS,
@@ -199,7 +206,7 @@ def test_server_call_tool_1() -> None:
                 {
                     "type": "text",
                     "text": '{"answer":"Hello, What is the meaning of life?!"}',
-                }
+                },
             ],
             "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
             "isError": False,
@@ -230,10 +237,92 @@ def test_server_call_tool_1() -> None:
                 {
                     "type": "text",
                     "text": '{"user_id":"123","email":"123@example.com"}',
-                }
+                },
             ],
             "structuredContent": {"user_id": "123", "email": "123@example.com"},
             "isError": False,
         },
     }
     assert context.called_tools == ["tool_1", "tool_2"]
+
+
+def test_server_call_tool_with_invalid_arguments() -> None:
+    context = TestContext(called_tools=[])
+    server = MCPServer(
+        tools=TOOLS,
+        name="test",
+        version="1.0.0",
+        context=context,
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "tool_1",
+                "arguments": {"invalid_field": "What is the meaning of life?"},
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32600,
+            "message": "Protocol error: Error validating arguments for tool tool_1: "
+            '[{"type":"missing","loc":["question"],"msg":"Field '
+            'required","input":{"invalid_field":"What is the meaning of '
+            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"}]',
+        },
+    }
+
+
+def test_server_call_tool_with_error() -> None:
+    context = TestContext(called_tools=[])
+    server = MCPServer(
+        tools=(
+            Tool(
+                func=tool_that_raises_error,
+                input=TestTool1Arguments,
+                output=TestTool1Output,
+            ),
+        ),
+        name="test",
+        version="1.0.0",
+        context=context,
+    )
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "tool_that_raises_error",
+                "arguments": {"question": "What is the meaning of life?"},
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Server error: Error calling tool tool_that_raises_error: "
+                    "Unknown error",
+                },
+            ],
+            "isError": True,
+        },
+    }
