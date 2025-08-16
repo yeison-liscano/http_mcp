@@ -55,15 +55,6 @@ class BaseTransport:
                     return await self._process_tools_request(message, request)
                 if message.method.startswith("prompts/"):
                     return await self._process_prompts_request(message)
-
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=message.id,
-                error=Error(
-                    code=-32601,
-                    message=f"Method not supported: {message.method}",
-                ),
-            )
         except Exception:
             LOGGER.exception("Error processing request")
             return JSONRPCError(
@@ -72,6 +63,16 @@ class BaseTransport:
                 error=Error(
                     code=-32603,
                     message="Internal error",
+                ),
+            )
+
+        else:
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=-32601,
+                    message=f"Method not supported: {message.method}",
                 ),
             )
 
@@ -155,7 +156,7 @@ class BaseTransport:
         request: Request,
     ) -> JSONRPCMessage | JSONRPCError:
         if message.method == "tools/list":
-            tools =  self._server.list_tools()
+            tools = self._server.list_tools()
             return ToolsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
