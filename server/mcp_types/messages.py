@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from server.mcp_types.capabilities import ServerCapabilities  # noqa: TC001
 
 
 class JSONRPCMessage(BaseModel):
     jsonrpc: Literal["2.0"]
-    id: int
+    id: int | str
 
 
 class JSONRPCRequest(JSONRPCMessage):
@@ -23,6 +23,25 @@ class JSONRPCRequest(JSONRPCMessage):
         "notifications/unsubscribe",
         "notifications/initialized",
     ]
+    params: dict[str, Any] | BaseModel | None = None
+
+
+class JSONRPCResponse(JSONRPCMessage):
+    result: BaseModel | None = None
+    error: Error | None = None
+
+    @field_validator("error")
+    @classmethod
+    def validate_error(cls, v: Error | None) -> Error | None:
+        if cls.result is not None:
+            message = "result and error cannot be set at the same time"
+            raise ValueError(message)
+        return v
+
+
+class JSONRPCNotification(BaseModel):
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/initialized", "notifications/unsubscribe"]
     params: dict[str, Any] | BaseModel | None = None
 
 
@@ -56,6 +75,7 @@ class InitializeResponseResult(BaseModel):
     protocol_version: str = Field(serialization_alias="protocolVersion", alias_priority=1)
     server_info: ServerInfo = Field(serialization_alias="serverInfo", alias_priority=1)
     capabilities: ServerCapabilities = Field(serialization_alias="capabilities", alias_priority=1)
+    instructions: str | None = None
 
 
 class InitializeResponse(JSONRPCMessage):
