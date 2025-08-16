@@ -1,1 +1,1 @@
-: && ruff check && mypy . &&  pytest --cov-report term-missing --cov=server --cov-fail-under=80 tests/
+: && ruff check && mypy . &&  pytest --cov-report term-missing --cov=server --cov-fail-under=88 tests/

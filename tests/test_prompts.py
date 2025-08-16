@@ -8,6 +8,7 @@ from server.mcp_types.content import TextContent
 from server.mcp_types.prompts import PromptMessage
 from server.prompts import Prompt
 from server.server import MCPServer
+from server.transport_types import ProtocolErrorCode
 
 
 class TestArguments(BaseModel):
@@ -225,7 +226,7 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": -32600,
+            "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": f"Protocol error: Error validating arguments for prompt {prompt.name}: "
             '[{"type":"missing","loc":["argument_1"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '

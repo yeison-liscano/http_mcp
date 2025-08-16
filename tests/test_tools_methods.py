@@ -6,6 +6,7 @@ from starlette.testclient import TestClient
 
 from server.server import MCPServer
 from server.tools import Tool, ToolArguments
+from server.transport_types import ProtocolErrorCode
 
 
 class TestTool1Arguments(BaseModel):
@@ -273,7 +274,7 @@ def test_server_call_tool_with_invalid_arguments() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": -32600,
+            "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Protocol error: Error validating arguments for tool tool_1: "
             '[{"type":"missing","loc":["question"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '

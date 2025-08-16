@@ -1,5 +1,6 @@
 import json
 import logging
+from http import HTTPStatus
 
 from pydantic import ValidationError
 from starlette.requests import Request
@@ -30,6 +31,7 @@ from server.mcp_types.tools import (
     ToolsListResult,
 )
 from server.server_interface import ServerInterface
+from server.transport_types import ProtocolErrorCode
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,36 +48,10 @@ class BaseTransport:
         message: JSONRPCRequest,
         request: Request,
     ) -> JSONRPCMessage:
-        try:
-            if message.method == "initialize":
-                response, _ = self._handle_initialization(message)
-                return response
+        if message.method.startswith("tools/"):
+            return await self._process_tools_request(message, request)
 
-            if message.method in self.supported_methods:
-                if message.method.startswith("tools/"):
-                    return await self._process_tools_request(message, request)
-                if message.method.startswith("prompts/"):
-                    return await self._process_prompts_request(message)
-        except Exception:
-            LOGGER.exception("Error processing request")
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=message.id,
-                error=Error(
-                    code=-32603,
-                    message="Internal error",
-                ),
-            )
-
-        else:
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=message.id,
-                error=Error(
-                    code=-32601,
-                    message=f"Method not supported: {message.method}",
-                ),
-            )
+        return await self._process_prompts_request(message)
 
     def _handle_initialization(
         self,
@@ -87,10 +63,13 @@ class BaseTransport:
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
-                error=Error(code=-32600, message=json.dumps(e.errors())),
-            ), 400
+                error=Error(
+                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    message=json.dumps(e.errors()),
+                ),
+            ), HTTPStatus.BAD_REQUEST
         protocol_version = message.params.protocol_version
-        status_code = 200
+        status_code = HTTPStatus.OK
         response: InitializeResponse | JSONRPCError
 
         if protocol_version in self.supported_versions:
@@ -105,12 +84,12 @@ class BaseTransport:
             )
         else:
             LOGGER.error("Unsupported protocol version: %s", protocol_version)
-            status_code = 400
+            status_code = HTTPStatus.BAD_REQUEST
             response = JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=-32602,
+                    code=ProtocolErrorCode.INVALID_PARAMS.value,
                     message="Unsupported protocol version",
                     data={
                         "supported": list(self.supported_versions),
@@ -121,7 +100,8 @@ class BaseTransport:
         return response, status_code
 
     async def _process_prompts_request(
-        self, message: JSONRPCRequest,
+        self,
+        message: JSONRPCRequest,
     ) -> PromptsListResponse | JSONRPCError | PromptsGetResponse:
         if message.method == "prompts/list":
             result = self._server.list_prompts()
@@ -130,42 +110,37 @@ class BaseTransport:
                 id=message.id,
                 result=result,
             )
-        if message.method == "prompts/get" and message.params:
-            try:
-                validated_message = PromptGetRequest.model_validate(message.model_dump())
-                prompt_result = await self._server.get_prompt(
-                    validated_message.params.name,
-                    validated_message.params.arguments,
-                )
-                return PromptsGetResponse(
-                    jsonrpc="2.0",
-                    id=message.id,
-                    result=prompt_result,
-                )
-            except ServerError as e:
-                return PromptsGetResponse(
-                    jsonrpc="2.0",
-                    id=message.id,
-                    result=PromptGetResult(
-                        description=e.message,
-                        messages=(),
-                    ),
-                )
-            except ProtocolError as e:
-                return JSONRPCError(
-                    jsonrpc="2.0",
-                    id=message.id,
-                    error=Error(code=-32600, message=e.message),
-                )
 
-        return JSONRPCError(
-            jsonrpc="2.0",
-            id=message.id,
-            error=Error(
-                code=-32601,
-                message=f"Method not found: {message.method}",
-            ),
-        )
+        try:
+            validated_message = PromptGetRequest.model_validate(message.model_dump())
+            prompt_result = await self._server.get_prompt(
+                validated_message.params.name,
+                validated_message.params.arguments,
+            )
+        except ServerError as e:
+            return PromptsGetResponse(
+                jsonrpc="2.0",
+                id=message.id,
+                result=PromptGetResult(
+                    description=e.message,
+                    messages=(),
+                ),
+            )
+        except ProtocolError as e:
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    message=e.message,
+                ),
+            )
+        else:
+            return PromptsGetResponse(
+                jsonrpc="2.0",
+                id=message.id,
+                result=prompt_result,
+            )
 
     async def _process_tools_request(
         self,
@@ -182,17 +157,8 @@ class BaseTransport:
                     next_cursor="",
                 ),
             )
-        if message.method == "tools/call":
-            return await self._call_tool(message, request)
 
-        return JSONRPCError(
-            jsonrpc="2.0",
-            id=message.id,
-            error=Error(
-                code=-32601,
-                message=f"Method not found: {message.method}",
-            ),
-        )
+        return await self._call_tool(message, request)
 
     async def _call_tool(
         self,
@@ -205,7 +171,10 @@ class BaseTransport:
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
-                error=Error(code=-32600, message=json.dumps(e.errors())),
+                error=Error(
+                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    message=json.dumps(e.errors()),
+                ),
             )
 
         name = message.params.name
@@ -232,7 +201,10 @@ class BaseTransport:
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
-                error=Error(code=-32600, message=e.message),
+                error=Error(
+                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    message=e.message,
+                ),
             )
         except ServerError as e:
             LOGGER.exception("Error calling tool %s", name)
