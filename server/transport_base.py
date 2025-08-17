@@ -48,6 +48,9 @@ class BaseTransport:
         message: JSONRPCRequest,
         request: Request,
     ) -> JSONRPCMessage:
+        if message.method == "initialize":
+            response, _ = self._handle_initialization(message)
+            return response
         if message.method.startswith("tools/"):
             return await self._process_tools_request(message, request)
 

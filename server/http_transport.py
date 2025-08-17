@@ -103,9 +103,6 @@ class HTTPTransport(BaseTransport):
                 return None
 
             request_message = JSONRPCRequest.model_validate(raw_message)
-            if request_message.method == "initialize":
-                await self._handle_initialization_request(request_message, send)
-                return None
         except ValidationError:
             LOGGER.exception("Error validating message")
             is_invalid_method = raw_message.get("method", "") not in self.supported_methods
@@ -137,7 +134,7 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.start",
-                "status": 200,
+                "status": HTTPStatus.OK.value,
                 "headers": [
                     (b"content-type", b"application/json"),
                 ],
@@ -156,7 +153,7 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.start",
-                "status": 405,
+                "status": HTTPStatus.METHOD_NOT_ALLOWED.value,
                 "headers": [
                     (b"allow", b"POST"),
                     (b"content-type", b"text/plain"),
@@ -209,20 +206,3 @@ class HTTPTransport(BaseTransport):
             },
         )
 
-    async def _handle_initialization_request(self, message: JSONRPCRequest, send: Send) -> None:
-        response, status_code = self._handle_initialization(message)
-
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status_code,
-                "headers": [(b"content-type", b"application/json")],
-            },
-        )
-        await send(
-            {
-                "type": "http.response.body",
-                "body": response.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8"),
-                "more_body": False,
-            },
-        )

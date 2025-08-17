@@ -9,7 +9,7 @@ from server.mcp_types.capabilities import ServerCapabilities  # noqa: TC001
 
 class JSONRPCMessage(BaseModel):
     jsonrpc: Literal["2.0"]
-    id: int | str
+    id: int | str | None = None  # Errors and notifications has no id
 
 
 class JSONRPCRequest(JSONRPCMessage):

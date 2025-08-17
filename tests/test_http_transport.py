@@ -97,14 +97,14 @@ def test_invalid_message() -> None:
 
     response = client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "method": "tools/list"},
+        json={"jsonrpc": "2.0"},
     )
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.json() == {
         "jsonrpc": "2.0",
         "id": "unknown",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ProtocolErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
         },
     }
