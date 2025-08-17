@@ -112,54 +112,54 @@ Example:
 
 1. **Define a context class:**
 
-   ```python
-   from dataclasses import dataclass, field
+```python
+from dataclasses import dataclass, field
 
-   @dataclass
-   class Context:
-       called_tools: list[str] = field(default_factory=list)
+@dataclass
+class Context:
+    called_tools: list[str] = field(default_factory=list)
 
-       def get_called_tools(self) -> list[str]:
-           return self.called_tools
+    def get_called_tools(self) -> list[str]:
+        return self.called_tools
 
-       def add_called_tool(self, tool_name: str) -> None:
-           self.called_tools.append(tool_name)
-   ```
+    def add_called_tool(self, tool_name: str) -> None:
+        self.called_tools.append(tool_name)
+```
 
 1. **Instantiate the context and the server:**
 
-   ```python
-   from app.tools import TOOLS, Context
-   from http_mcp.server import MCPServer
+```python
+from app.tools import TOOLS, Context
+from http_mcp.server import MCPServer
 
-   mcp_server: MCPServer[Context] = MCPServer(
-       tools=TOOLS,
-       name="test",
-       version="1.0.0",
-       context=Context(called_tools=[]),
-   )
-   ```
+mcp_server: MCPServer[Context] = MCPServer(
+    tools=TOOLS,
+    name="test",
+    version="1.0.0",
+    context=Context(called_tools=[]),
+)
+```
 
 1. **Access the context in your tools:**
 
-   ```python
-   from pydantic import BaseModel, Field
-   from http_mcp.tools import ToolArguments
-   from app.tools import Context
+```python
+from pydantic import BaseModel, Field
+from http_mcp.tools import ToolArguments
+from app.tools import Context
 
-   class MyToolArguments(BaseModel):
-       question: str = Field(description="The question to answer")
+class MyToolArguments(BaseModel):
+    question: str = Field(description="The question to answer")
 
-   class MyToolOutput(BaseModel):
-       answer: str = Field(description="The answer to the question")
+class MyToolOutput(BaseModel):
+    answer: str = Field(description="The answer to the question")
 
-   async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput:
-       # Access the context
-       args.context.add_called_tool("my_tool")
-       ...
+async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput:
+    # Access the context
+    args.context.add_called_tool("my_tool")
+    ...
 
-       return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
-   ```
+    return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
+```
 
 ## Stateless Context
 
