@@ -31,6 +31,9 @@ jobs:
       - name: Run ruff
         run: uv run ruff check .
 
+      - name: Run mdformat
+        run: uv run mdformat README.md --check --wrap 80
+
 name: dev
 on:
   pull_request:

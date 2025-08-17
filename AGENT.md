@@ -1,6 +1,7 @@
 # Project
 
 ## Project description
+
 This project is a base python project environment configuration using uv.
 
 ## General Instructions:
@@ -10,7 +11,8 @@ This project is a base python project environment configuration using uv.
   - Use snake_case for variable names, functions, and parameters.
   - Use PascalCase for class names.
   - Prefer functional programming paradigms where appropriate.
-  - Use type hints for all functions, classes, and parameters as well as return values.
+  - Use type hints for all functions, classes, and parameters as well as return
+    values.
   - Use immutable data structures when possible, prefer tuples over lists.
   - Avoid modifying function arguments.
   - Use list/dict comprehensions instead of loops when possible.
@@ -20,7 +22,9 @@ This project is a base python project environment configuration using uv.
 
 ## Tools usage
 
-- context7:  when the user requests code examples, setup or configuration steps, or library/API documentation, use this tool to generate the code.
-- file_reader: when the user requests to read a file, use this tool to read the file.
-- safe_tool: when the user requests to run a command, use this tool to run the command.
-
+- context7: when the user requests code examples, setup or configuration steps,
+  or library/API documentation, use this tool to generate the code.
+- file_reader: when the user requests to read a file, use this tool to read the
+  file.
+- safe_tool: when the user requests to run a command, use this tool to run the
+  command.
