@@ -7,7 +7,7 @@ from typing import Generic, TypeVar, cast
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
-from server.exceptions import ArgumentsError, ToolInvocationError
+from http_mcp.exceptions import ArgumentsError, ToolInvocationError
 
 TToolsContext = TypeVar("TToolsContext")
 TArguments_co = TypeVar("TArguments_co", bound=BaseModel, covariant=True)

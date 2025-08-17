@@ -6,14 +6,14 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.mcp_types.messages import (
+from http_mcp.mcp_types.messages import (
     Error,
     JSONRPCError,
     JSONRPCRequest,
 )
-from server.server_interface import ServerInterface
-from server.transport_base import BaseTransport
-from server.transport_types import ErrorResponseInfo, ProtocolErrorCode
+from http_mcp.server_interface import ServerInterface
+from http_mcp.transport_base import BaseTransport
+from http_mcp.transport_types import ErrorResponseInfo, ProtocolErrorCode
 
 LOGGER = logging.getLogger(__name__)
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB

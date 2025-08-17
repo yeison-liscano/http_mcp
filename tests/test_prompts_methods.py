@@ -4,11 +4,11 @@ import pytest
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from server.mcp_types.content import TextContent
-from server.mcp_types.prompts import PromptMessage
-from server.prompts import Prompt
-from server.server import MCPServer
-from server.transport_types import ProtocolErrorCode
+from http_mcp.mcp_types.content import TextContent
+from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp.prompts import Prompt
+from http_mcp.server import MCPServer
+from http_mcp.transport_types import ProtocolErrorCode
 
 
 class TestArguments(BaseModel):
@@ -271,6 +271,38 @@ def test_server_call_prompt_with_error() -> None:
         "result": {
             "description": "Server error: Error getting prompt prompt_that_raises_error: "
             "Unknown error",
+            "messages": [],
+        },
+    }
+
+
+def test_prompt_not_found() -> None:
+    server = MCPServer[None](  # type: ignore [misc]
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(),
+    )
+    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "prompts/get",
+            "id": 1,
+            "params": {
+                "name": "not_found",
+                "arguments": {},
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "description": "Server error: Prompt not_found not found",
             "messages": [],
         },
     }

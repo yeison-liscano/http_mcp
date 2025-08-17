@@ -2,8 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from server.mcp_types.content import TextContent
-from server.mcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp.mcp_types.content import TextContent
+from http_mcp.mcp_types.messages import JSONRPCMessage, JSONRPCRequest
 
 
 class PromptGetRequestParams(BaseModel):

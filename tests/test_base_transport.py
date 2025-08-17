@@ -2,7 +2,7 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from server.transport_types import ProtocolErrorCode
+from http_mcp.transport_types import ProtocolErrorCode
 from tests.models import DUMMY_SERVER
 
 
