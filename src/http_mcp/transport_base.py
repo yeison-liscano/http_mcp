@@ -5,9 +5,9 @@ from http import HTTPStatus
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.exceptions import ProtocolError, ServerError
-from server.mcp_types.content import TextContent
-from server.mcp_types.messages import (
+from http_mcp.exceptions import ProtocolError, ServerError
+from http_mcp.mcp_types.content import TextContent
+from http_mcp.mcp_types.messages import (
     Error,
     InitializationRequest,
     InitializeResponse,
@@ -17,21 +17,21 @@ from server.mcp_types.messages import (
     JSONRPCRequest,
     ServerInfo,
 )
-from server.mcp_types.prompts import (
+from http_mcp.mcp_types.prompts import (
     PromptGetRequest,
     PromptGetResult,
     PromptsGetResponse,
     PromptsListResponse,
 )
-from server.mcp_types.tools import (
+from http_mcp.mcp_types.tools import (
     ToolsCallRequest,
     ToolsCallResponse,
     ToolsCallResult,
     ToolsListResponse,
     ToolsListResult,
 )
-from server.server_interface import ServerInterface
-from server.transport_types import ProtocolErrorCode
+from http_mcp.server_interface import ServerInterface
+from http_mcp.transport_types import ProtocolErrorCode
 
 LOGGER = logging.getLogger(__name__)
 

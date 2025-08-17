@@ -2,13 +2,14 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from server.http_transport import HTTPTransport
-from server.mcp_types.capabilities import Capability, ServerCapabilities
-from server.mcp_types.prompts import PromptGetResult, PromptListResult
-from server.prompts import Prompt
-from server.server_interface import ServerInterface
-from server.stdio_transport import StdioTransport
-from server.tools import (
+from http_mcp.exceptions import PromptNotFoundError, ToolNotFoundError
+from http_mcp.http_transport import HTTPTransport
+from http_mcp.mcp_types.capabilities import Capability, ServerCapabilities
+from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
+from http_mcp.prompts import Prompt
+from http_mcp.server_interface import ServerInterface
+from http_mcp.stdio_transport import StdioTransport
+from http_mcp.tools import (
     TArguments_co,
     Tool,
     TOutput_co,
@@ -69,7 +70,10 @@ class MCPServer(ServerInterface[TToolsContext]):
         request: Request,
         context: TToolsContext,
     ) -> BaseModel:
-        tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
+        try:
+            tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
+        except StopIteration as e:
+            raise ToolNotFoundError(tool_name) from e
         return await tool.invoke(args, request, context)
 
     def list_prompts(self) -> PromptListResult:
@@ -79,7 +83,10 @@ class MCPServer(ServerInterface[TToolsContext]):
         )
 
     async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
-        _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
+        try:
+            _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
+        except StopIteration as e:
+            raise PromptNotFoundError(prompt_name) from e
         result = await _prompt.invoke(arguments)
         return PromptGetResult(
             description=_prompt.description,

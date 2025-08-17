@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
-from server.server import MCPServer
-from server.tools import Tool, ToolArguments
+from http_mcp.server import MCPServer
+from http_mcp.tools import Tool, ToolArguments
 
 
 class DummyModel(BaseModel):

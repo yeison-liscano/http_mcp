@@ -4,9 +4,9 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from server.server import MCPServer
-from server.tools import Tool, ToolArguments
-from server.transport_types import ProtocolErrorCode
+from http_mcp.server import MCPServer
+from http_mcp.tools import Tool, ToolArguments
+from http_mcp.transport_types import ProtocolErrorCode
 
 
 class TestTool1Arguments(BaseModel):
@@ -322,6 +322,40 @@ def test_server_call_tool_with_error() -> None:
                     "type": "text",
                     "text": "Server error: Error calling tool tool_that_raises_error: "
                     "Unknown error",
+                },
+            ],
+            "isError": True,
+        },
+    }
+
+
+def test_tool_not_found() -> None:
+    server = MCPServer[None](  # type: ignore[misc]
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "not_found", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    response_json = response.json()
+    assert response_json == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Server error: Tool not_found not found",
                 },
             ],
             "isError": True,

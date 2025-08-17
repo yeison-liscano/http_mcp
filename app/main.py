@@ -6,7 +6,7 @@ from starlette.applications import Starlette
 
 from app.prompts import PROMPTS
 from app.tools import TOOLS, Context
-from server.server import MCPServer
+from http_mcp.server import MCPServer
 
 app = Starlette()
 context = Context(called_tools=[])

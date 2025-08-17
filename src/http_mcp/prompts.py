@@ -6,8 +6,8 @@ from typing import Generic, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from server.exceptions import ArgumentsError, PromptInvocationError
-from server.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
+from http_mcp.exceptions import ArgumentsError, PromptInvocationError
+from http_mcp.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 
 TArguments = TypeVar("TArguments", bound=BaseModel)
 

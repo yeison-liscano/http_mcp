@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from server.mcp_types.messages import (
+from http_mcp.mcp_types.messages import (
     Error,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
 )
-from server.server_interface import ServerInterface
-from server.transport_base import BaseTransport
-from server.transport_types import ProtocolErrorCode
+from http_mcp.server_interface import ServerInterface
+from http_mcp.transport_base import BaseTransport
+from http_mcp.transport_types import ProtocolErrorCode
 
 if TYPE_CHECKING:
     from starlette.types import Scope
