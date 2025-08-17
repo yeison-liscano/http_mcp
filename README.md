@@ -1,6 +1,13 @@
 # Simple HTTP MCP Server Implementation
 
-This project provides a lightweight server implementation for the Model Context Protocol (MCP) over HTTP. It allows you to expose Python functions as "tools" that can be discovered and executed remotely via a JSON-RPC interface. It is thought to be used with an Starlette or FastAPI application (see [app/main.py](app/main.py)).
+This project provides a lightweight server implementation for the Model Context
+Protocol (MCP) over HTTP. It allows you to expose Python functions as tools and
+prompts that can be discovered and executed remotely via a JSON-RPC interface.
+It is thought to be used with an Starlette or FastAPI application (see
+[app/main.py](app/main.py)).
+
+The following badge correspond to the server I use as example of of this
+project. Found it in the [app/ folder](app/main.py).
 
 <a href="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp/badge" alt="Simple HTTP Server MCP server" />
@@ -8,16 +15,16 @@ This project provides a lightweight server implementation for the Model Context 
 
 ## Features
 
-- **MCP Protocol Compliant**: Implements the MCP specification for tool and prompts discovery and execution.
-- **HTTP and STDIO Transport**: Uses HTTP (POST requests) or STDIO for communication.
-- **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request handling.
-- **Type-Safe**: Leverages `Pydantic` for robust data validation and serialization.
+- **MCP Protocol Compliant**: Implements the MCP specification for tool and
+  prompts discovery and execution. No support for notifications.
+- **HTTP and STDIO Transport**: Uses HTTP (POST requests) or STDIO for
+  communication.
+- **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request
+  handling.
+- **Type-Safe**: Leverages `Pydantic` for robust data validation and
+  serialization.
 - **Stateful Context**: Maintain state across tool calls using a context object.
 - **Request Access**: Access the incoming request object from your tools.
-- **Dependency Management**: Uses `uv` for fast and efficient package management.
-- **Linting**: Integrated with `Ruff` for code formatting and linting.
-- **Type Checking**: Uses `Mypy` for static type checking.
-
 
 ## Tools
 
@@ -25,66 +32,64 @@ Tools are the functions that can be called by the client.
 
 Example:
 
+1. **Define the arguments and output for the tools:**
+
 ```python
 # app/tools/models.py
 from pydantic import BaseModel, Field
-from server.tools import Tool, ToolArguments
 
-class Tool1Arguments(BaseModel):
+class ToolArguments(BaseModel):
     question: str = Field(description="The question to answer")
 
-class Tool1Output(BaseModel):
-    answer: str = Field(description="The answer to the question")
-
-class Tool2Arguments(BaseModel):
-    question: str = Field(description="The question to answer")
-
-class Tool2Output(BaseModel):
+class ToolOutput(BaseModel):
     answer: str = Field(description="The answer to the question")
 
 # Note: the description on Field will be passed when listing the tools.
 # Having a description is optional, but it's recommended to provide one.
+```
 
-# --------- ------------ --------- --------- ------------ --------- ------------ ---------
+2. **Define the tools:**
+
+```python
 # app/tools/tools.py
 import asyncio
+from pydantic import BaseModel, Field
+from http_mcp.tools import Tool, ToolArguments
 
-def tool_1(args: ToolArguments[Tool1Arguments, None]) -> Tool1Output:
-    return Tool1Output(answer=f"Hello, {args.inputs.question}!")
+from app.tools.models import ToolArguments, ToolOutput
 
-async def tool_2(args: ToolArguments[Tool2Arguments, None]) -> Tool2Output:
-    await asyncio.sleep(1)
-    return Tool2Output(answer=f"Hello, {args.inputs.question}!")
+def tool(args: ToolArguments[ToolArguments, None]) -> ToolOutput:
+    return ToolOutput(answer=f"Hello, {args.inputs.question}!") # access the inputs using args.inputs
 
-# --------- ------------ --------- --------- ------------ --------- ------------ ---------
+```
+
+```python
 # app/tools/__init__.py
 
-from app.tools.models import Tool1Arguments, Tool1Output, Tool2Arguments, Tool2Output
-from app.tools.tools import tool_1, tool_2
-from server.tools import Tool
+from app.tools.models import ToolArguments, ToolOutput
+from app.tools.tools import tool
+from http_mcp.tools import Tool
 
 TOOLS = (
     Tool(
-        func=tool_1,
-        input=Tool1Arguments,
-        output=Tool1Output,
-    ),
-    Tool(
-        func=tool_2,
-        input=Tool2Arguments,
-        output=Tool2Output,
+        func=tool,
+        input=ToolArguments,
+        output=ToolOutput,
     ),
 )
 
 __all__ = ["TOOLS"]
 
-# --------- ------------ --------- --------- ------------ --------- ------------ ---------
+```
+
+3. **Instantiate the server:**
+
+```python
 # app/main.py
 from starlette.applications import Starlette
-from server.server import MCPServer
+from http_mcp.server import MCPServer
 from app.tools import TOOLS
 
-# MCPServer[ContextType]
 mcp_server: MCPServer[None] = MCPServer(tools=TOOLS, name="test", version="1.0.0")
 
 app = Starlette()
@@ -95,139 +100,149 @@ app.mount(
 
 ```
 
-
 ## Stateful Context
 
-This is the server context attribute, it could be seem as a global state for the server.
+This is the server context attribute, it could be seem as a global state for the
+server.
 
-You can use a context object to maintain state across tool calls. The context object is passed to each tool call and can be used to store and retrieve data.
+You can use a context object to maintain state across tool calls. The context
+object is passed to each tool call and can be used to store and retrieve data.
 
 Example:
 
-1.  **Define a context class:**
-    ```python
-    from dataclasses import dataclass, field
+1. **Define a context class:**
 
-    @dataclass
-    class Context:
-        called_tools: list[str] = field(default_factory=list)
+   ```python
+   from dataclasses import dataclass, field
 
-        def get_called_tools(self) -> list[str]:
-            return self.called_tools
+   @dataclass
+   class Context:
+       called_tools: list[str] = field(default_factory=list)
 
-        def add_called_tool(self, tool_name: str) -> None:
-            self.called_tools.append(tool_name)
-    ```
+       def get_called_tools(self) -> list[str]:
+           return self.called_tools
 
-2.  **Instantiate the context and the server:**
-    ```python
-    from app.tools import TOOLS, Context
-    from server.server import MCPServer
+       def add_called_tool(self, tool_name: str) -> None:
+           self.called_tools.append(tool_name)
+   ```
 
-    mcp_server: MCPServer[Context] = MCPServer(tools=TOOLS, name="test", version="1.0.0", context=Context(called_tools=[]))
-    ```
+1. **Instantiate the context and the server:**
 
-3.  **Access the context in your tools:**
-    ```python
-    from server.tools import ToolArguments
-    from app.tools import Context
+   ```python
+   from app.tools import TOOLS, Context
+   from http_mcp.server import MCPServer
 
-    async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput:
-        # Access the context
-        args.context.add_called_tool("my_tool")
-        ...
-    ```
+   mcp_server: MCPServer[Context] = MCPServer(
+       tools=TOOLS,
+       name="test",
+       version="1.0.0",
+       context=Context(called_tools=[]),
+   )
+   ```
+
+1. **Access the context in your tools:**
+
+   ```python
+   from pydantic import BaseModel, Field
+   from http_mcp.tools import ToolArguments
+   from app.tools import Context
+
+   class MyToolArguments(BaseModel):
+       question: str = Field(description="The question to answer")
+
+   class MyToolOutput(BaseModel):
+       answer: str = Field(description="The answer to the question")
+
+   async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput:
+       # Access the context
+       args.context.add_called_tool("my_tool")
+       ...
+
+       return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
+   ```
 
 ## Stateless Context
 
-You can access the incoming request object from your tools. The request object is passed to each tool call and can be used to access headers, cookies, and other request data (e.x request.state, request.scope).
+You can access the incoming request object from your tools. The request object
+is passed to each tool call and can be used to access headers, cookies, and
+other request data (e.x request.state, request.scope).
 
 ```python
-from server.tools import ToolArguments
+from pydantic import BaseModel, Field
+from http_mcp.tools import ToolArguments
+
+class MyToolArguments(BaseModel):
+    question: str = Field(description="The question to answer")
+
+class MyToolOutput(BaseModel):
+    answer: str = Field(description="The answer to the question")
+
 
 async def my_tool(args: ToolArguments[MyToolArguments, None]) -> MyToolOutput:
     # Access the request
     auth_header = args.request.headers.get("Authorization")
     ...
+
+    return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
 ```
 
-## Getting Started
+## Prompts
 
-### Prerequisites
+You could add interactive templates that are invoked by user choice.
 
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+1. **Define the arguments and output for the prompts:**
 
-### Installation
+```python
+from pydantic import BaseModel, Field
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd simple-http-mcp
-    ```
-
-2.  **Create a virtual environment and install dependencies:**
-    ```bash
-    uv venv
-    source .venv/bin/activate
-    uv sync
-    ```
-
-## Usage
-
-For usage examples, please refer to the tests in the `tests/` directory.
-
-## How to test with Gemini Cli
-
-1.  **Install dependencies:**
-    ```bash
-    uv sync
-    ```
-
-2.  **Run the server:**
-    ```bash
-    uv run run-http
-    ```
-    or for stdio transport:
-    ```bash
-    uv run run-stdio
-    ```
-
-3.  **Test the server:**
-
-    Note: you should be located on the root folder of the project so gemini config is used.
-
-    ```bash
-    gemini
-    /mcp # This should show the tools available
-    ```
-
-Example:
-
-![Example](assets/gemini_test.png)
+from http_mcp.mcp_types.content import TextContent
+from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp.prompts import Prompt
 
 
-## Development
+class GetAdvice(BaseModel):
+    topic: str = Field(description="The topic to get advice on")
+    include_actionable_steps: bool = Field(
+        description="Whether to include actionable steps in the advice", default=False
+    )
 
-This project uses several tools to ensure code quality.
 
-### Linting
+def get_advice(args: GetAdvice) -> tuple[PromptMessage, ...]:
+    """Get advice on a topic."""
+    template = """
+    You are a helpful assistant that can give advice on {topic}.
+    """
+    if args.include_actionable_steps:
+        template += """
+        The advice should include actionable steps.
+        """
+    return (
+        PromptMessage(role="user", content=TextContent(text=template.format(topic=args.topic))),
+    )
 
-To check for linting errors, run:
 
-```bash
-ruff check .
+PROMPTS = (
+    Prompt(
+        func=get_advice,
+        arguments_type=GetAdvice,
+    ),
+)
 ```
 
-To automatically fix linting errors, run:
+2. **Instantiate the server:**
 
-```bash
-ruff check . --fix
-```
+```python
+from starlette.applications import Starlette
 
-### Type Checking
+from app.prompts import PROMPTS
+from http_mcp.server import MCPServer
 
-To run the static type checker, use:
+app = Starlette()
+mcp_server = MCPServer[None](tools=(), prompts=PROMPTS, name="test", version="1.0.0")
 
-```bash
-mypy .
+app.mount(
+    "/mcp",
+    mcp_server.app,
+)
+
 ```

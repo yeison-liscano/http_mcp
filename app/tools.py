@@ -32,7 +32,7 @@ async def get_weather(args: ToolArguments[GetWeatherInput, Context]) -> GetWeath
     """Get the current weather in a given location."""
     args.context.add_called_tool("get_weather")
     return GetWeatherOutput(
-        weather=f"The weather in {args.inputs.location} is 25 degrees {args.inputs.unit}"
+        weather=f"The weather in {args.inputs.location} is 25 degrees {args.inputs.unit}",
     )
 
 
@@ -65,7 +65,7 @@ async def tool_that_access_request(
     req_authentication = args.request.headers.get("Authorization")
     args.context.add_called_tool("tool_that_access_request")
     return ToolThatAccessRequestOutput(
-        message=f"Hello {args.inputs.username} you are authenticated with {req_authentication}"
+        message=f"Hello {args.inputs.username} you are authenticated with {req_authentication}",
     )
 
 

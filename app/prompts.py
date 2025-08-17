@@ -8,7 +8,8 @@ from http_mcp.prompts import Prompt
 class GetAdvice(BaseModel):
     topic: str = Field(description="The topic to get advice on")
     include_actionable_steps: bool = Field(
-        description="Whether to include actionable steps in the advice", default=False
+        description="Whether to include actionable steps in the advice",
+        default=False,
     )
 
 
