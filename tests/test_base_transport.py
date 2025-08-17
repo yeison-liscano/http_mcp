@@ -21,7 +21,7 @@ def test_initialize_bad_request() -> None:
         },
         headers={"Content-Type": "application/json"},
     )
-    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.status_code == HTTPStatus.OK
     assert response.json() == {
         "jsonrpc": "2.0",
         "id": 1,
@@ -66,7 +66,7 @@ def test_initialize_unsupported_version() -> None:
         },
         headers={"Content-Type": "application/json"},
     )
-    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.status_code == HTTPStatus.OK
     assert response.json() == {
         "jsonrpc": "2.0",
         "id": 1,

@@ -15,6 +15,7 @@ from server.mcp_types.messages import (
 )
 from server.server_interface import ServerInterface
 from server.transport_base import BaseTransport
+from server.transport_types import ProtocolErrorCode
 
 if TYPE_CHECKING:
     from starlette.types import Scope
@@ -53,41 +54,36 @@ class StdioTransport(BaseTransport):
             json_message = {}
             try:
                 json_message = json.loads(line)
-                if isinstance(json_message, list):
-                    await asyncio.gather(
-                        *[
-                            self._handle_message(
-                                JSONRPCRequest.model_validate(msg), writer, request_headers,
-                            )
-                            for msg in json_message
-                        ],
-                    )
-                else:
-                    await self._handle_message(
-                        JSONRPCRequest.model_validate(json_message), writer, request_headers,
-                    )
+                await self._handle_message(
+                    JSONRPCRequest.model_validate(json_message),
+                    writer,
+                    request_headers,
+                )
             except ValidationError as e:
-                if isinstance(json_message, dict) and json_message.get("method", "").startswith(
-                    "notifications/",
-                ):
-                    continue
-
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
-                    id=0,
-                    error=Error(code=-32600, message=json.dumps(e.errors())),
+                    id="unknown",
+                    error=Error(
+                        code=ProtocolErrorCode.INVALID_PARAMS.value,
+                        message=json.dumps(e.errors()),
+                    ),
                 )
                 await self._write_response(
-                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    writer,
+                    error_response.model_dump_json(by_alias=True, exclude_none=True),
                 )
             except json.JSONDecodeError:
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
-                    id=0,
-                    error=Error(code=-32700, message="Parse error"),
+                    id="unknown",
+                    error=Error(
+                        code=ProtocolErrorCode.INVALID_PARAMS.value,
+                        message="Parse error",
+                    ),
                 )
                 await self._write_response(
-                    writer, error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    writer,
+                    error_response.model_dump_json(by_alias=True, exclude_none=True),
                 )
                 continue
 
@@ -104,7 +100,7 @@ class StdioTransport(BaseTransport):
 
     async def _handle_message(
         self,
-        message: JSONRPCMessage,
+        message: JSONRPCRequest,
         writer: asyncio.StreamWriter,
         request_headers: dict[str, str] | None = None,
     ) -> None:
@@ -122,18 +118,12 @@ class StdioTransport(BaseTransport):
         async def process(msg: JSONRPCRequest) -> JSONRPCMessage | JSONRPCError | None:
             if msg.method.startswith("notifications/"):
                 return None
-            try:
-                validated_msg = JSONRPCRequest.model_validate(msg.model_dump())
-                return await self._process_request(validated_msg, dummy_request)
-            except ValidationError as e:
-                return JSONRPCError(
-                    jsonrpc="2.0",
-                    id=msg.id,
-                    error=Error(code=-32600, message=json.dumps(e.errors())),
-                )
 
-        response = await process(JSONRPCRequest.model_validate(message.model_dump()))
+            return await self._process_request(msg, dummy_request)
+
+        response = await process(message)
         if response:
             await self._write_response(
-                writer, response.model_dump_json(by_alias=True, exclude_none=True),
+                writer,
+                response.model_dump_json(by_alias=True, exclude_none=True),
             )
