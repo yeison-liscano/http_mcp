@@ -2,14 +2,5 @@
   "autoAccept": false,
   "contextFileName": "AGENT.md",
   "usageStatisticsEnabled": true,
-  "respectGitIgnore": true,
-  "mcpServers": {
-    "test": {
-      "httpUrl": "http://localhost:8000/mcp/",
-      "timeout": 5000,
-      "headers": {
-        "Authorization": "Bearer TEST_TOKEN"
-      }
-    }
-  }
+  "respectGitIgnore": true
 }
