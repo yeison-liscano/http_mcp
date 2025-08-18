@@ -1,12 +1,22 @@
+from dataclasses import dataclass, field
 from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from app.tools import Context
 from http_mcp.server import MCPServer
 from http_mcp.tools import Tool, ToolArguments
 from tests.models import TestToolArguments, TestToolOutput
 
+
+@dataclass
+class Context:
+    called_tools: list[str] = field(default_factory=list)
+
+    def get_called_tools(self) -> list[str]:
+        return self.called_tools
+
+    def add_called_tool(self, tool_name: str) -> None:
+        self.called_tools.append(tool_name)
 
 async def simple_server_tool_with_context(
     args: ToolArguments[TestToolArguments, Context],

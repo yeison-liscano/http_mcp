@@ -4,9 +4,9 @@ import os
 import uvicorn
 from starlette.applications import Starlette
 
-from app.prompts import PROMPTS
-from app.tools import TOOLS, Context
 from http_mcp.server import MCPServer
+from tests.app.prompts import PROMPTS
+from tests.app.tools import TOOLS, Context
 
 app = Starlette()
 context = Context(called_tools=[])

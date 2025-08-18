@@ -3,11 +3,11 @@
 This project provides a lightweight server implementation for the Model Context
 Protocol (MCP) over HTTP. It allows you to expose Python functions as tools and
 prompts that can be discovered and executed remotely via a JSON-RPC interface.
-It is thought to be used with an Starlette or FastAPI application (see
-[app/main.py](app/main.py)).
+It is intended to be used with a Starlette or FastAPI application (see
+[demo](https://github.com/yeison-liscano/demo_http_mcp)).
 
-The following badge correspond to the server I use as example of of this
-project. Found it in the [app/ folder](app/main.py).
+The following badge corresponds to the example server for this project. Find it
+in the [tests/app/ folder](tests/app).
 
 <a href="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp/badge" alt="Simple HTTP Server MCP server" />
@@ -38,10 +38,10 @@ Example:
 # app/tools/models.py
 from pydantic import BaseModel, Field
 
-class ToolArguments(BaseModel):
+class GreetInput(BaseModel):
     question: str = Field(description="The question to answer")
 
-class ToolOutput(BaseModel):
+class GreetOutput(BaseModel):
     answer: str = Field(description="The answer to the question")
 
 # Note: the description on Field will be passed when listing the tools.
@@ -52,29 +52,27 @@ class ToolOutput(BaseModel):
 
 ```python
 # app/tools/tools.py
-import asyncio
-from pydantic import BaseModel, Field
-from http_mcp.tools import Tool, ToolArguments
+from http_mcp.tools import ToolArguments
 
-from app.tools.models import ToolArguments, ToolOutput
+from app.tools.models import GreetInput, GreetOutput
 
-def tool(args: ToolArguments[ToolArguments, None]) -> ToolOutput:
-    return ToolOutput(answer=f"Hello, {args.inputs.question}!") # access the inputs using args.inputs
+def greet(args: ToolArguments[GreetInput, None]) -> GreetOutput:
+    return GreetOutput(answer=f"Hello, {args.inputs.question}!")  # access inputs via args.inputs
 
 ```
 
 ```python
 # app/tools/__init__.py
 
-from app.tools.models import ToolArguments, ToolOutput
-from app.tools.tools import tool
 from http_mcp.tools import Tool
+from app.tools.models import GreetInput, GreetOutput
+from app.tools.tools import greet
 
 TOOLS = (
     Tool(
-        func=tool,
-        input=ToolArguments,
-        output=ToolOutput,
+        func=greet,
+        input=GreetInput,
+        output=GreetOutput,
     ),
 )
 
@@ -90,7 +88,7 @@ from starlette.applications import Starlette
 from http_mcp.server import MCPServer
 from app.tools import TOOLS
 
-mcp_server: MCPServer[None] = MCPServer(tools=TOOLS, name="test", version="1.0.0")
+mcp_server = MCPServer(tools=TOOLS, name="test", version="1.0.0")
 
 app = Starlette()
 app.mount(
@@ -102,7 +100,7 @@ app.mount(
 
 ## Stateful Context
 
-This is the server context attribute, it could be seem as a global state for the
+This is the server context attribute; it can be seen as a global state for the
 server.
 
 You can use a context object to maintain state across tool calls. The context
@@ -114,6 +112,8 @@ Example:
 
 ```python
 from dataclasses import dataclass, field
+
+# app/context.py
 
 @dataclass
 class Context:
@@ -129,7 +129,8 @@ class Context:
 1. **Instantiate the context and the server:**
 
 ```python
-from app.tools import TOOLS, Context
+from app.tools import TOOLS
+from app.context import Context
 from http_mcp.server import MCPServer
 
 mcp_server: MCPServer[Context] = MCPServer(
@@ -145,7 +146,7 @@ mcp_server: MCPServer[Context] = MCPServer(
 ```python
 from pydantic import BaseModel, Field
 from http_mcp.tools import ToolArguments
-from app.tools import Context
+from app.context import Context
 
 class MyToolArguments(BaseModel):
     question: str = Field(description="The question to answer")
@@ -165,7 +166,7 @@ async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput
 
 You can access the incoming request object from your tools. The request object
 is passed to each tool call and can be used to access headers, cookies, and
-other request data (e.x request.state, request.scope).
+other request data (e.g. request.state, request.scope).
 
 ```python
 from pydantic import BaseModel, Field
@@ -188,7 +189,7 @@ async def my_tool(args: ToolArguments[MyToolArguments, None]) -> MyToolOutput:
 
 ## Prompts
 
-You could add interactive templates that are invoked by user choice.
+You can add interactive templates that are invoked by user choice.
 
 1. **Define the arguments and output for the prompts:**
 
@@ -238,7 +239,7 @@ from app.prompts import PROMPTS
 from http_mcp.server import MCPServer
 
 app = Starlette()
-mcp_server = MCPServer[None](tools=(), prompts=PROMPTS, name="test", version="1.0.0")
+mcp_server = MCPServer(tools=(), prompts=PROMPTS, name="test", version="1.0.0")
 
 app.mount(
     "/mcp",

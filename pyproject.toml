@@ -30,10 +30,6 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/http_mcp"]
 
-[project.scripts]
-run-app = "app.main:run_http"
-run-stdio = "app.main:run_stdio"
-
 [project.urls]
 Homepage = "https://github.com/yeison-liscano/http_mcp"
 Issues = "https://github.com/yeison-liscano/http_mcp/issues"
