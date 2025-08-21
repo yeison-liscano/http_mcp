@@ -17,17 +17,17 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-version = "0.1.1"
+version = "0.2.0"
 
-dependencies = ["pydantic==2.10.5", "uvicorn==0.35.0", "starlette==0.47.2"]
+dependencies = ["pydantic==2.11.7", "uvicorn==0.35.0", "starlette==0.47.2"]
 
 [dependency-groups]
 dev = [
     "httpx==0.28.1",
     "mdformat==0.7.22",
-    "mypy==1.9.0",
+    "mypy==1.17.1",
     "pytest==8.4.1",
-    "ruff==0.9.10",
+    "ruff==0.12.9",
     "pytest-cov==6.2.1",
     "pytest-asyncio==1.1.0",
 ]

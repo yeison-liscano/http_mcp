@@ -30,11 +30,11 @@ def test_initialize_bad_request() -> None:
             "message": '[{"type": "missing", "loc": ["params", "clientInfo"], '
             '"msg": "Field required", "input": {"protocolVersion": '
             '"2025-06-18"}, "url": '
-            '"https://errors.pydantic.dev/2.10/v/missing"}, {"type": '
+            '"https://errors.pydantic.dev/2.11/v/missing"}, {"type": '
             '"missing", "loc": ["params", "capabilities"], "msg": '
             '"Field required", "input": {"protocolVersion": '
             '"2025-06-18"}, "url": '
-            '"https://errors.pydantic.dev/2.10/v/missing"}]',
+            '"https://errors.pydantic.dev/2.11/v/missing"}]',
         },
     }
 
@@ -118,6 +118,6 @@ def test_invalid_tool_execution_request() -> None:
             "message": '[{"type": "model_type", "loc": ["params"], "msg": "Input should be a '
             'valid dictionary or instance of ToolsCallRequestParams", "input": '
             'null, "ctx": {"class_name": "ToolsCallRequestParams"}, "url": '
-            '"https://errors.pydantic.dev/2.10/v/model_type"}]',
+            '"https://errors.pydantic.dev/2.11/v/model_type"}]',
         },
     }

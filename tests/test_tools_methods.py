@@ -278,7 +278,7 @@ def test_server_call_tool_with_invalid_arguments() -> None:
             "message": "Protocol error: Error validating arguments for tool tool_1: "
             '[{"type":"missing","loc":["question"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
-            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"}]',
+            'life?"},"url":"https://errors.pydantic.dev/2.11/v/missing"}]',
         },
     }
 
@@ -330,7 +330,7 @@ def test_server_call_tool_with_error() -> None:
 
 
 def test_tool_not_found() -> None:
-    server = MCPServer[None](  # type: ignore[misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
