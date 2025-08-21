@@ -3,16 +3,21 @@ name = "http-mcp"
 authors = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
 maintainers = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
 classifiers = [
-    "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 keywords = ["mcp", "llm", "automation", "http"]
 description = "This is a HTTP implementation of the MCP protocol"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.13,<3.14"
-version = "0.0.1"
+requires-python = ">=3.10"
+version = "0.1.1"
 
 dependencies = ["pydantic==2.10.5", "uvicorn==0.35.0", "starlette==0.47.2"]
 
