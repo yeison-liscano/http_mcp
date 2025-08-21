@@ -10,24 +10,25 @@ from starlette.requests import Request
 from http_mcp.exceptions import ArgumentsError, ToolInvocationError
 
 TToolsContext = TypeVar("TToolsContext")
-TArguments_co = TypeVar("TArguments_co", bound=BaseModel, covariant=True)
-TOutput_co = TypeVar("TOutput_co", bound=BaseModel, covariant=True)
+TArguments_contra = TypeVar("TArguments_contra", bound=BaseModel, contravariant=True)
+TOutput_contra = TypeVar("TOutput_contra", bound=BaseModel, contravariant=True)
 
 
 @dataclass
-class ToolArguments(Generic[TArguments_co, TToolsContext]):
+class ToolArguments(Generic[TArguments_contra, TToolsContext]):
     request: Request
-    inputs: TArguments_co
+    inputs: TArguments_contra
     context: TToolsContext
 
 
 @dataclass
-class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
+class Tool(Generic[TArguments_contra, TToolsContext, TOutput_contra]):
     func: Callable[
-        [ToolArguments[TArguments_co, TToolsContext]], Awaitable[TOutput_co] | TOutput_co,
+        [ToolArguments[TArguments_contra, TToolsContext]],
+        Awaitable[TOutput_contra] | TOutput_contra,
     ]
-    input: type[TArguments_co]
-    output: type[TOutput_co]
+    input: type[TArguments_contra]
+    output: type[TOutput_contra]
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
@@ -68,7 +69,7 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
         args: dict,
         request: Request,
         context: TToolsContext,
-    ) -> TOutput_co:
+    ) -> TOutput_contra:
         try:
             validated_args = self.input.model_validate(args)
         except ValidationError as e:
@@ -80,7 +81,8 @@ class Tool(Generic[TArguments_co, TToolsContext, TOutput_co]):
                 return await self.func(_args)
 
             _func = cast(
-                Callable[[ToolArguments[TArguments_co, TToolsContext]], TOutput_co], self.func,
+                Callable[[ToolArguments[TArguments_contra, TToolsContext]], TOutput_contra],
+                self.func,
             )
             return await asyncio.to_thread(_func, _args)
         except Exception as e:

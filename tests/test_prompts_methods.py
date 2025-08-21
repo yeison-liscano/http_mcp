@@ -52,7 +52,7 @@ PROMPT_ERROR = Prompt(
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_prompt_list(prompt: Prompt) -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
@@ -100,7 +100,7 @@ def test_prompt_list(prompt: Prompt) -> None:
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_prompt_get(prompt: Prompt) -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
@@ -151,7 +151,7 @@ def test_prompt_get(prompt: Prompt) -> None:
 def test_prompts(
     prompt: Prompt,
 ) -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
@@ -201,7 +201,7 @@ def test_prompts(
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
@@ -230,16 +230,16 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
             "message": f"Protocol error: Error validating arguments for prompt {prompt.name}: "
             '[{"type":"missing","loc":["argument_1"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
-            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"},{"type":"missing","loc":'
+            'life?"},"url":"https://errors.pydantic.dev/2.11/v/missing"},{"type":"missing","loc":'
             '["argument_2"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
-            'life?"},"url":"https://errors.pydantic.dev/2.10/v/missing"}]',
+            'life?"},"url":"https://errors.pydantic.dev/2.11/v/missing"}]',
         },
     }
 
 
 def test_server_call_prompt_with_error() -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",
@@ -277,7 +277,7 @@ def test_server_call_prompt_with_error() -> None:
 
 
 def test_prompt_not_found() -> None:
-    server = MCPServer[None](  # type: ignore [misc]
+    server = MCPServer[None](
         tools=(),
         name="test",
         version="1.0.0",

@@ -10,9 +10,9 @@ from http_mcp.prompts import Prompt
 from http_mcp.server_interface import ServerInterface
 from http_mcp.stdio_transport import StdioTransport
 from http_mcp.tools import (
-    TArguments_co,
+    TArguments_contra,
     Tool,
-    TOutput_co,
+    TOutput_contra,
     TToolsContext,
 )
 
@@ -22,7 +22,7 @@ class MCPServer(ServerInterface[TToolsContext]):
         self,
         name: str,
         version: str,
-        tools: tuple[Tool[TArguments_co, TToolsContext, TOutput_co], ...] = (),
+        tools: tuple[Tool[TArguments_contra, TToolsContext, TOutput_contra], ...] = (),
         prompts: tuple[Prompt, ...] = (),
         context: TToolsContext | None = None,
     ) -> None:
