@@ -9,6 +9,7 @@ from starlette.types import Receive, Scope, Send
 from http_mcp.mcp_types.messages import (
     Error,
     JSONRPCError,
+    JSONRPCMessage,
     JSONRPCRequest,
 )
 from http_mcp.server_interface import ServerInterface
@@ -93,7 +94,12 @@ class HTTPTransport(BaseTransport):
                 await send(
                     {
                         "type": "http.response.body",
-                        "body": b"",
+                        "body": JSONRPCMessage(jsonrpc="2.0")
+                        .model_dump_json(
+                            by_alias=True,
+                            exclude_none=True,
+                        )
+                        .encode("utf-8"),
                         "more_body": False,
                     },
                 )
