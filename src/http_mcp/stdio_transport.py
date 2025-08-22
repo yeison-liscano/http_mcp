@@ -62,7 +62,6 @@ class StdioTransport(BaseTransport):
             except ValidationError as e:
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
-                    id="unknown",
                     error=Error(
                         code=ProtocolErrorCode.INVALID_PARAMS.value,
                         message=json.dumps(e.errors()),
@@ -75,7 +74,6 @@ class StdioTransport(BaseTransport):
             except json.JSONDecodeError:
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
-                    id="unknown",
                     error=Error(
                         code=ProtocolErrorCode.INVALID_PARAMS.value,
                         message="Parse error",

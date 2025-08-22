@@ -1,15 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Generic
 
 from pydantic import BaseModel
 from starlette.requests import Request
 
 from http_mcp.mcp_types.capabilities import ServerCapabilities
 from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
-from http_mcp.tools import TToolsContext
 
 
-class ServerInterface(ABC, Generic[TToolsContext]):
+class ServerInterface[TToolsContext](ABC):
     @property
     @abstractmethod
     def context(self) -> TToolsContext | None:

@@ -9,22 +9,22 @@ from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, ToolInvocationError
 
-TToolsContext = TypeVar("TToolsContext")
+_T = TypeVar("_T")
 TArguments_contra = TypeVar("TArguments_contra", bound=BaseModel, contravariant=True)
 TOutput_contra = TypeVar("TOutput_contra", bound=BaseModel, contravariant=True)
 
 
 @dataclass
-class ToolArguments(Generic[TArguments_contra, TToolsContext]):
+class ToolArguments[TArguments: BaseModel, TToolsContext]:
     request: Request
-    inputs: TArguments_contra
+    inputs: TArguments
     context: TToolsContext
 
 
 @dataclass
-class Tool(Generic[TArguments_contra, TToolsContext, TOutput_contra]):
+class Tool(Generic[TArguments_contra, _T, TOutput_contra]):
     func: Callable[
-        [ToolArguments[TArguments_contra, TToolsContext]],
+        [ToolArguments[TArguments_contra, _T]],
         Awaitable[TOutput_contra] | TOutput_contra,
     ]
     input: type[TArguments_contra]
@@ -68,7 +68,7 @@ class Tool(Generic[TArguments_contra, TToolsContext, TOutput_contra]):
         self,
         args: dict,
         request: Request,
-        context: TToolsContext,
+        context: _T,
     ) -> TOutput_contra:
         try:
             validated_args = self.input.model_validate(args)
@@ -81,7 +81,7 @@ class Tool(Generic[TArguments_contra, TToolsContext, TOutput_contra]):
                 return await self.func(_args)
 
             _func = cast(
-                Callable[[ToolArguments[TArguments_contra, TToolsContext]], TOutput_contra],
+                "Callable[[ToolArguments[TArguments_contra, _T]], TOutput_contra]",
                 self.func,
             )
             return await asyncio.to_thread(_func, _args)

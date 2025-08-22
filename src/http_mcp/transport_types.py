@@ -12,7 +12,7 @@ class ProtocolErrorCode(IntEnum):
 
 
 class ErrorResponseInfo(BaseModel):
-    message_id: int | str
+    message_id: int | str | None = None
     protocol_code: ProtocolErrorCode
     http_status_code: HTTPStatus
     message: str

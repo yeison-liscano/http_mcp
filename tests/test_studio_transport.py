@@ -77,7 +77,6 @@ async def test_studio_transport_invalid_request() -> None:
     assert not stderr_data
     assert json.loads(stdout_data) == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": '[{"type": "missing", "loc": ["method"], "msg": "Field required", '
@@ -103,7 +102,6 @@ async def test_studio_transport_invalid_body() -> None:
     assert not stderr_data
     assert json.loads(stdout_data) == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Parse error",

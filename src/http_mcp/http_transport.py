@@ -34,7 +34,6 @@ class HTTPTransport(BaseTransport):
                 await self._send_error_response(
                     send,
                     ErrorResponseInfo(
-                        message_id="unknown",
                         protocol_code=ProtocolErrorCode.INVALID_PARAMS,
                         http_status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                         message="Unsupported Media Type: Content-Type must be application/json",
@@ -53,7 +52,6 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    message_id="unknown",
                     protocol_code=ProtocolErrorCode.INVALID_PARAMS,
                     http_status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     message="Request body too large.",
@@ -67,7 +65,6 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    message_id="unknown",
                     protocol_code=ProtocolErrorCode.INVALID_PARAMS,
                     http_status_code=HTTPStatus.BAD_REQUEST,
                     message="Parse error: Invalid body",
@@ -109,8 +106,8 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    message_id=raw_message.get("id", "unknown"),
-                    protocol_code= (
+                    message_id=raw_message.get("id"),
+                    protocol_code=(
                         ProtocolErrorCode.METHOD_NOT_FOUND
                         if is_invalid_method
                         else ProtocolErrorCode.INVALID_PARAMS
@@ -205,4 +202,3 @@ class HTTPTransport(BaseTransport):
                 "more_body": False,
             },
         )
-
