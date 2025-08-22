@@ -2,18 +2,16 @@ import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar, cast
+from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
 from http_mcp.exceptions import ArgumentsError, PromptInvocationError
 from http_mcp.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 
-TArguments = TypeVar("TArguments", bound=BaseModel)
-
 
 @dataclass
-class Prompt(Generic[TArguments]):
+class Prompt[TArguments: BaseModel]:
     func: Callable[[TArguments], Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...]]
     arguments_type: type[TArguments]
 
@@ -62,7 +60,7 @@ class Prompt(Generic[TArguments]):
             if inspect.iscoroutinefunction(self.func):
                 return await self.func(_arguments)
 
-            _func = cast(Callable[[TArguments], tuple[PromptMessage, ...]], self.func)
+            _func = cast("Callable[[TArguments], tuple[PromptMessage, ...]]", self.func)
             return await asyncio.to_thread(_func, _arguments)
         except Exception as e:
             raise PromptInvocationError(self.name, "Unknown error") from e

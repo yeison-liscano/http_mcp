@@ -13,11 +13,10 @@ from http_mcp.tools import (
     TArguments_contra,
     Tool,
     TOutput_contra,
-    TToolsContext,
 )
 
 
-class MCPServer(ServerInterface[TToolsContext]):
+class MCPServer[TToolsContext](ServerInterface[TToolsContext]):
     def __init__(
         self,
         name: str,

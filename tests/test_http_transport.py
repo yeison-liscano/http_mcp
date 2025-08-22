@@ -17,7 +17,6 @@ def test_unsupported_content_type() -> None:
     assert response.status_code == HTTPStatus.UNSUPPORTED_MEDIA_TYPE
     assert response.json() == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Unsupported Media Type: Content-Type must be application/json",
@@ -49,7 +48,6 @@ def test_request_body_too_large() -> None:
     assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
     assert response.json() == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Request body too large.",
@@ -69,7 +67,6 @@ def test_parse_error() -> None:
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.json() == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Parse error: Invalid body",
@@ -102,7 +99,6 @@ def test_invalid_message() -> None:
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.json() == {
         "jsonrpc": "2.0",
-        "id": "unknown",
         "error": {
             "code": ProtocolErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
