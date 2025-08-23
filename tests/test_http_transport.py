@@ -86,7 +86,7 @@ def test_notification() -> None:
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == HTTPStatus.OK
-    assert response.text == '{"jsonrpc":"2.0"}'
+    assert response.text == ""
 
 
 def test_invalid_message() -> None:
