@@ -23,8 +23,62 @@ in the [tests/app/ folder](tests/app).
   handling.
 - **Type-Safe**: Leverages `Pydantic` for robust data validation and
   serialization.
-- **Stateful Context**: Maintain state across tool calls using a context object.
-- **Request Access**: Access the incoming request object from your tools.
+- **Server State Management**: Access shared state through the lifespan context
+  using the `get_state_key` method.
+- **Request Access**: Access the incoming request object from your tools and
+  prompts.
+
+## Server Architecture
+
+The library provides a single `MCPServer` class that uses lifespan to manage
+shared state across the entire application lifecycle.
+
+### MCPServer
+
+The `MCPServer` is designed to work with Starlette's lifespan system for
+managing shared server state.
+
+**Key Characteristics:**
+
+- **Lifespan Based**: Uses Starlette's lifespan events to initialize and manage
+  shared server state
+- **Application-Level State**: State persists across the entire application
+  lifecycle, not per-request
+- **Flexible**: Can be used with any custom context class stored in the lifespan
+  state
+
+**Example Usage:**
+
+```python
+import contextlib
+from collections.abc import AsyncIterator
+from typing import TypedDict
+from dataclasses import dataclass, field
+from starlette.applications import Starlette
+from http_mcp.server import MCPServer
+
+@dataclass
+class Context:
+    call_count: int = 0
+    user_preferences: dict = field(default_factory=dict)
+
+class State(TypedDict):
+    context: Context
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: Starlette) -> AsyncIterator[State]:
+    yield {"context": Context()}
+
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=my_tools,
+    prompts=my_prompts
+)
+
+app = Starlette(lifespan=lifespan)
+app.mount("/mcp", mcp_server.app)
+```
 
 ## Tools
 
@@ -52,26 +106,26 @@ class GreetOutput(BaseModel):
 
 ```python
 # app/tools/tools.py
-from http_mcp.tools import ToolArguments
+from http_mcp.types import Arguments
 
 from app.tools.models import GreetInput, GreetOutput
 
-def greet(args: ToolArguments[GreetInput, None]) -> GreetOutput:
-    return GreetOutput(answer=f"Hello, {args.inputs.question}!")  # access inputs via args.inputs
+def greet(args: Arguments[GreetInput]) -> GreetOutput:
+    return GreetOutput(answer=f"Hello, {args.inputs.question}!")
 
 ```
 
 ```python
 # app/tools/__init__.py
 
-from http_mcp.tools import Tool
+from http_mcp.types import Tool
 from app.tools.models import GreetInput, GreetOutput
 from app.tools.tools import greet
 
 TOOLS = (
     Tool(
         func=greet,
-        input=GreetInput,
+        inputs=GreetInput,
         output=GreetOutput,
     ),
 )
@@ -95,16 +149,14 @@ app.mount(
     "/mcp",
     mcp_server.app,
 )
-
 ```
 
-## Stateful Context
+## Server State Management
 
-This is the server context attribute; it can be seen as a global state for the
-server.
-
-You can use a context object to maintain state across tool calls. The context
-object is passed to each tool call and can be used to store and retrieve data.
+The server uses Starlette's lifespan system to manage shared state across the
+entire application lifecycle. State is initialized when the application starts
+and persists until it shuts down. Context is accessed through the
+`get_state_key` method on the `Arguments` object.
 
 Example:
 
@@ -126,26 +178,38 @@ class Context:
         self.called_tools.append(tool_name)
 ```
 
-1. **Instantiate the context and the server:**
+2. **Set up the application with lifespan:**
 
 ```python
-from app.tools import TOOLS
+import contextlib
+from collections.abc import AsyncIterator
+from typing import TypedDict
+from starlette.applications import Starlette
 from app.context import Context
 from http_mcp.server import MCPServer
 
-mcp_server: MCPServer[Context] = MCPServer(
+class State(TypedDict):
+    context: Context
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: Starlette) -> AsyncIterator[State]:
+    yield {"context": Context(called_tools=[])}
+
+mcp_server = MCPServer(
     tools=TOOLS,
     name="test",
     version="1.0.0",
-    context=Context(called_tools=[]),
 )
+
+app = Starlette(lifespan=lifespan)
+app.mount("/mcp", mcp_server.app)
 ```
 
-1. **Access the context in your tools:**
+3. **Access the context in your tools:**
 
 ```python
 from pydantic import BaseModel, Field
-from http_mcp.tools import ToolArguments
+from http_mcp.types import Arguments
 from app.context import Context
 
 class MyToolArguments(BaseModel):
@@ -154,15 +218,16 @@ class MyToolArguments(BaseModel):
 class MyToolOutput(BaseModel):
     answer: str = Field(description="The answer to the question")
 
-async def my_tool(args: ToolArguments[MyToolArguments, Context]) -> MyToolOutput:
-    # Access the context
-    args.context.add_called_tool("my_tool")
+async def my_tool(args: Arguments[MyToolArguments]) -> MyToolOutput:
+    # Access the context from lifespan state
+    context = args.get_state_key("context", Context)
+    context.add_called_tool("my_tool")
     ...
 
     return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
 ```
 
-## Stateless Context
+## Request Access
 
 You can access the incoming request object from your tools. The request object
 is passed to each tool call and can be used to access headers, cookies, and
@@ -170,7 +235,7 @@ other request data (e.g. request.state, request.scope).
 
 ```python
 from pydantic import BaseModel, Field
-from http_mcp.tools import ToolArguments
+from http_mcp.types import Arguments
 
 class MyToolArguments(BaseModel):
     question: str = Field(description="The question to answer")
@@ -179,26 +244,36 @@ class MyToolOutput(BaseModel):
     answer: str = Field(description="The answer to the question")
 
 
-async def my_tool(args: ToolArguments[MyToolArguments, None]) -> MyToolOutput:
+async def my_tool(args: Arguments[MyToolArguments]) -> MyToolOutput:
     # Access the request
     auth_header = args.request.headers.get("Authorization")
     ...
 
     return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
+
+# Use MCPServer:
+from http_mcp.server import MCPServer
+
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=(my_tool,),
+)
 ```
 
 ## Prompts
 
-You can add interactive templates that are invoked by user choice.
+You can add interactive templates that are invoked by user choice. Prompts now
+support lifespan state access, similar to tools.
 
-1. **Define the arguments and output for the prompts:**
+1. **Define the arguments for the prompts:**
 
 ```python
 from pydantic import BaseModel, Field
 
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.prompts import PromptMessage
-from http_mcp.prompts import Prompt
+from http_mcp.types import Arguments, Prompt
 
 
 class GetAdvice(BaseModel):
@@ -208,17 +283,22 @@ class GetAdvice(BaseModel):
     )
 
 
-def get_advice(args: GetAdvice) -> tuple[PromptMessage, ...]:
+def get_advice(args: Arguments[GetAdvice]) -> tuple[PromptMessage, ...]:
     """Get advice on a topic."""
     template = """
     You are a helpful assistant that can give advice on {topic}.
     """
-    if args.include_actionable_steps:
+    if args.inputs.include_actionable_steps:
         template += """
         The advice should include actionable steps.
         """
     return (
-        PromptMessage(role="user", content=TextContent(text=template.format(topic=args.topic))),
+        PromptMessage(
+            role="user",
+            content=TextContent(
+                text=template.format(topic=args.inputs.topic)
+            ),
+        ),
     )
 
 
@@ -230,7 +310,49 @@ PROMPTS = (
 )
 ```
 
-2. **Instantiate the server:**
+2. **Using prompts with lifespan state:**
+
+```python
+from pydantic import BaseModel, Field
+from http_mcp.mcp_types.content import TextContent
+from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp.types import Arguments, Prompt
+from app.context import Context
+
+class GetAdvice(BaseModel):
+    topic: str = Field(description="The topic to get advice on")
+
+def get_advice_with_context(args: Arguments[GetAdvice]) -> tuple[PromptMessage, ...]:
+    """Get advice on a topic with context awareness."""
+    # Access the context from lifespan state
+    context = args.get_state_key("context", Context)
+    called_tools = context.get_called_tools()
+    template = """
+    You are a helpful assistant that can give advice on {topic}.
+    Previously called tools: {tools}
+    """
+
+    return (
+        PromptMessage(
+            role="user",
+            content=TextContent(
+                text=template.format(
+                    topic=args.inputs.topic,
+                    tools=", ".join(called_tools) if called_tools else "none"
+                )
+            )
+        ),
+    )
+
+PROMPTS_WITH_CONTEXT = (
+    Prompt(
+        func=get_advice_with_context,
+        arguments_type=GetAdvice,
+    ),
+)
+```
+
+3. **Instantiate the server:**
 
 ```python
 from starlette.applications import Starlette
@@ -245,5 +367,4 @@ app.mount(
     "/mcp",
     mcp_server.app,
 )
-
 ```

@@ -7,12 +7,7 @@ from http_mcp.mcp_types.capabilities import ServerCapabilities
 from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
 
 
-class ServerInterface[TToolsContext](ABC):
-    @property
-    @abstractmethod
-    def context(self) -> TToolsContext | None:
-        raise NotImplementedError
-
+class ServerInterface(ABC):
     @property
     @abstractmethod
     def version(self) -> str:
@@ -34,7 +29,6 @@ class ServerInterface[TToolsContext](ABC):
         tool_name: str,
         args: dict,
         request: Request,
-        context: TToolsContext,
     ) -> BaseModel:
         raise NotImplementedError
 
@@ -47,5 +41,10 @@ class ServerInterface[TToolsContext](ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_prompt(self, prompt_name: str, arguments: dict) -> PromptGetResult:
+    async def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: dict,
+        request: Request,
+    ) -> PromptGetResult:
         raise NotImplementedError
