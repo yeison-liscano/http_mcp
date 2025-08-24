@@ -4,9 +4,9 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
-from http_mcp.transport_types import ProtocolErrorCode
+from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp.server import MCPServer, SimpleServer
+from http_mcp.types import Arguments, Tool
 
 
 class TestTool1Arguments(BaseModel):
@@ -37,7 +37,7 @@ class TestContext:
         return self.called_tools
 
 
-async def tool_1(args: ToolArguments[TestTool1Arguments, TestContext]) -> TestTool1Output:
+async def tool_1(args: Arguments[TestTool1Arguments, TestContext]) -> TestTool1Output:
     """Return a simple answer."""
     assert args.inputs.question == "What is the meaning of life?"
     assert args.context.called_tools == []
@@ -45,7 +45,7 @@ async def tool_1(args: ToolArguments[TestTool1Arguments, TestContext]) -> TestTo
     return TestTool1Output(answer=f"Hello, {args.inputs.question}!")
 
 
-def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
+def tool_2(args: Arguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
     """Return a simple user information."""
     assert args.inputs.user_id == "123"
     assert args.context.called_tools == ["tool_1"]
@@ -54,7 +54,7 @@ def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Out
 
 
 def tool_that_raises_error(
-    _args: ToolArguments[TestTool1Arguments, TestContext],
+    _args: Arguments[TestTool1Arguments, TestContext],
 ) -> TestTool1Output:
     """Return a simple answer."""
     raise ValueError
@@ -63,12 +63,12 @@ def tool_that_raises_error(
 TOOLS = (
     Tool(
         func=tool_1,
-        input=TestTool1Arguments,
+        inputs=TestTool1Arguments,
         output=TestTool1Output,
     ),
     Tool(
         func=tool_2,
-        input=TestTool2Arguments,
+        inputs=TestTool2Arguments,
         output=TestTool2Output,
     ),
 )
@@ -289,7 +289,7 @@ def test_server_call_tool_with_error() -> None:
         tools=(
             Tool(
                 func=tool_that_raises_error,
-                input=TestTool1Arguments,
+                inputs=TestTool1Arguments,
                 output=TestTool1Output,
             ),
         ),
@@ -330,7 +330,7 @@ def test_server_call_tool_with_error() -> None:
 
 
 def test_tool_not_found() -> None:
-    server = MCPServer[None](
+    server = SimpleServer(
         tools=(),
         name="test",
         version="1.0.0",

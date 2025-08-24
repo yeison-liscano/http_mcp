@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
-from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
+from http_mcp.server import SimpleServer
+from http_mcp.types import Arguments, Tool
 
 
 class DummyModel(BaseModel):
@@ -9,17 +9,17 @@ class DummyModel(BaseModel):
     argument_2: str
 
 
-def dummy_tool(_arg: ToolArguments[DummyModel, None]) -> DummyModel:
+def dummy_tool(_arg: Arguments[DummyModel, None]) -> DummyModel:
     raise NotImplementedError
 
 
 DUMMY_TOOL = Tool(
     func=dummy_tool,
-    input=DummyModel,
+    inputs=DummyModel,
     output=DummyModel,
 )
 
-DUMMY_SERVER = MCPServer(
+DUMMY_SERVER = SimpleServer(
     name="test",
     version="1.0.0",
     tools=(DUMMY_TOOL,),

@@ -3,11 +3,11 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
+from http_mcp.types import Arguments, Tool
 from tests.models import TestToolArguments, TestToolOutput
 
 
-async def simple_server_tool(args: ToolArguments[TestToolArguments, None]) -> TestToolOutput:
+async def simple_server_tool(args: Arguments[TestToolArguments, None]) -> TestToolOutput:
     """Return a simple server tool."""
     assert args.inputs.question == "What is the meaning of life?"
     assert args.request.method == "POST"
@@ -18,7 +18,7 @@ async def simple_server_tool(args: ToolArguments[TestToolArguments, None]) -> Te
 TOOLS_SIMPLE_SERVER = (
     Tool(
         func=simple_server_tool,
-        input=TestToolArguments,
+        inputs=TestToolArguments,
         output=TestToolOutput,
     ),
 )

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from http_mcp.transport_types import ProtocolErrorCode
+from http_mcp._transport_types import ProtocolErrorCode
 
 
 @pytest.mark.asyncio

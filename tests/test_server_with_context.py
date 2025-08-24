@@ -4,7 +4,7 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
+from http_mcp.types import Arguments, Tool
 from tests.models import TestToolArguments, TestToolOutput
 
 
@@ -18,8 +18,9 @@ class Context:
     def add_called_tool(self, tool_name: str) -> None:
         self.called_tools.append(tool_name)
 
+
 async def simple_server_tool_with_context(
-    args: ToolArguments[TestToolArguments, Context],
+    args: Arguments[TestToolArguments, Context],
 ) -> TestToolOutput:
     """Return a simple server tool with context."""
     assert args.inputs.question == "What is the meaning of life?"
@@ -33,7 +34,7 @@ async def simple_server_tool_with_context(
 TOOLS_SIMPLE_SERVER_WITH_CONTEXT = (
     Tool(
         func=simple_server_tool_with_context,
-        input=TestToolArguments,
+        inputs=TestToolArguments,
         output=TestToolOutput,
     ),
 )
