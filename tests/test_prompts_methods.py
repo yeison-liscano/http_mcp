@@ -4,11 +4,11 @@ import pytest
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
+from http_mcp._transport_types import ProtocolErrorCode
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.prompts import PromptMessage
-from http_mcp.prompts import Prompt
 from http_mcp.server import MCPServer
-from http_mcp.transport_types import ProtocolErrorCode
+from http_mcp.types import Arguments, Prompt
 
 
 class TestArguments(BaseModel):
@@ -18,17 +18,17 @@ class TestArguments(BaseModel):
     argument_4: float = Field(description="The fourth argument", default=1.0)
 
 
-def prompt_sync(arg: TestArguments) -> tuple[PromptMessage, ...]:
+def prompt_sync(arg: Arguments[TestArguments]) -> tuple[PromptMessage, ...]:
     """Test prompt sync."""
-    return (PromptMessage(role="user", content=TextContent(text=arg.model_dump_json())),)
+    return (PromptMessage(role="user", content=TextContent(text=arg.inputs.model_dump_json())),)
 
 
-async def prompt_async(arg: TestArguments) -> tuple[PromptMessage, ...]:
+async def prompt_async(arg: Arguments[TestArguments]) -> tuple[PromptMessage, ...]:
     """Test prompt async."""
-    return (PromptMessage(role="user", content=TextContent(text=arg.model_dump_json())),)
+    return (PromptMessage(role="user", content=TextContent(text=arg.inputs.model_dump_json())),)
 
 
-def prompt_that_raises_error(_arg: TestArguments) -> tuple[PromptMessage, ...]:
+def prompt_that_raises_error(_arg: Arguments[TestArguments]) -> tuple[PromptMessage, ...]:
     """Test prompt that raises an error."""
     raise ValueError
 
@@ -52,7 +52,7 @@ PROMPT_ERROR = Prompt(
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_prompt_list(prompt: Prompt) -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
@@ -100,7 +100,7 @@ def test_prompt_list(prompt: Prompt) -> None:
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_prompt_get(prompt: Prompt) -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
@@ -151,7 +151,7 @@ def test_prompt_get(prompt: Prompt) -> None:
 def test_prompts(
     prompt: Prompt,
 ) -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
@@ -201,7 +201,7 @@ def test_prompts(
 
 @pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
 def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
@@ -239,7 +239,7 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
 
 
 def test_server_call_prompt_with_error() -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
@@ -277,7 +277,7 @@ def test_server_call_prompt_with_error() -> None:
 
 
 def test_prompt_not_found() -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",

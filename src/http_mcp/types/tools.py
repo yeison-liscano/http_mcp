@@ -8,27 +8,20 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, ToolInvocationError
+from http_mcp.types.models import Arguments
 
-_T = TypeVar("_T")
-TArguments_contra = TypeVar("TArguments_contra", bound=BaseModel, contravariant=True)
-TOutput_contra = TypeVar("TOutput_contra", bound=BaseModel, contravariant=True)
-
-
-@dataclass
-class ToolArguments[TArguments: BaseModel, TToolsContext]:
-    request: Request
-    inputs: TArguments
-    context: TToolsContext
+_TArguments_contra = TypeVar("_TArguments_contra", bound=BaseModel, contravariant=True)
+_TOutput_contra = TypeVar("_TOutput_contra", bound=BaseModel, contravariant=True)
 
 
 @dataclass
-class Tool(Generic[TArguments_contra, _T, TOutput_contra]):
+class Tool(Generic[_TArguments_contra, _TOutput_contra]):
     func: Callable[
-        [ToolArguments[TArguments_contra, _T]],
-        Awaitable[TOutput_contra] | TOutput_contra,
+        [Arguments[_TArguments_contra]],
+        Awaitable[_TOutput_contra] | _TOutput_contra,
     ]
-    input: type[TArguments_contra]
-    output: type[TOutput_contra]
+    inputs: type[_TArguments_contra]
+    output: type[_TOutput_contra]
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
@@ -54,7 +47,7 @@ class Tool(Generic[TArguments_contra, _T, TOutput_contra]):
 
     @property
     def input_schema(self) -> dict:
-        schema = self.input.model_json_schema()
+        schema = self.inputs.model_json_schema()
         schema["title"] = self.name + "Arguments"
         return schema
 
@@ -68,20 +61,19 @@ class Tool(Generic[TArguments_contra, _T, TOutput_contra]):
         self,
         args: dict,
         request: Request,
-        context: _T,
-    ) -> TOutput_contra:
+    ) -> _TOutput_contra:
         try:
-            validated_args = self.input.model_validate(args)
+            validated_args = self.inputs.model_validate(args)
         except ValidationError as e:
             raise ArgumentsError("tool", self.name, e.json()) from e
 
         try:
-            _args = ToolArguments(request, validated_args, context)
+            _args = Arguments(request, validated_args)
             if inspect.iscoroutinefunction(self.func):
                 return await self.func(_args)
 
             _func = cast(
-                "Callable[[ToolArguments[TArguments_contra, _T]], TOutput_contra]",
+                "Callable[[Arguments[_TArguments_contra]], _TOutput_contra]",
                 self.func,
             )
             return await asyncio.to_thread(_func, _args)

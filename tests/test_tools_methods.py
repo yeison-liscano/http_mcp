@@ -1,12 +1,13 @@
-from dataclasses import dataclass, field
 from http import HTTPStatus
 
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
+from http_mcp._transport_types import ProtocolErrorCode
 from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
-from http_mcp.transport_types import ProtocolErrorCode
+from http_mcp.types import Arguments, Tool
+from tests.app.context import Context
+from tests.app.main import mount_mcp_server
 
 
 class TestTool1Arguments(BaseModel):
@@ -26,35 +27,26 @@ class TestTool2Output(BaseModel):
     email: str = Field(description="The email address of the user")
 
 
-@dataclass
-class TestContext:
-    called_tools: list[str] = field(default_factory=list)
-
-    def add_called_tool(self, tool_name: str) -> None:
-        self.called_tools.append(tool_name)
-
-    def get_called_tools(self) -> list[str]:
-        return self.called_tools
-
-
-async def tool_1(args: ToolArguments[TestTool1Arguments, TestContext]) -> TestTool1Output:
+async def tool_1(args: Arguments[TestTool1Arguments]) -> TestTool1Output:
     """Return a simple answer."""
     assert args.inputs.question == "What is the meaning of life?"
-    assert args.context.called_tools == []
-    args.context.add_called_tool("tool_1")
+    context = args.get_state_key("context", Context)
+    assert context.called_tools == []
+    context.add_called_tool("tool_1")
     return TestTool1Output(answer=f"Hello, {args.inputs.question}!")
 
 
-def tool_2(args: ToolArguments[TestTool2Arguments, TestContext]) -> TestTool2Output:
+def tool_2(args: Arguments[TestTool2Arguments]) -> TestTool2Output:
     """Return a simple user information."""
     assert args.inputs.user_id == "123"
-    assert args.context.called_tools == ["tool_1"]
-    args.context.add_called_tool("tool_2")
+    context = args.get_state_key("context", Context)
+    assert context.called_tools == ["tool_1"]
+    context.add_called_tool("tool_2")
     return TestTool2Output(user_id=args.inputs.user_id, email=f"{args.inputs.user_id}@example.com")
 
 
 def tool_that_raises_error(
-    _args: ToolArguments[TestTool1Arguments, TestContext],
+    _args: Arguments[TestTool1Arguments],
 ) -> TestTool1Output:
     """Return a simple answer."""
     raise ValueError
@@ -63,26 +55,25 @@ def tool_that_raises_error(
 TOOLS = (
     Tool(
         func=tool_1,
-        input=TestTool1Arguments,
+        inputs=TestTool1Arguments,
         output=TestTool1Output,
     ),
     Tool(
         func=tool_2,
-        input=TestTool2Arguments,
+        inputs=TestTool2Arguments,
         output=TestTool2Output,
     ),
 )
 
 
 def test_list_tools() -> None:
-    context = TestContext(called_tools=[])
     server = MCPServer(
         tools=TOOLS,
         name="test",
         version="1.0.0",
-        context=context,
     )
-    client = TestClient(server.app)
+    app = mount_mcp_server(server)
+    client = TestClient(app)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
@@ -177,85 +168,83 @@ def test_list_tools() -> None:
 
 
 def test_server_call_tools() -> None:
-    context = TestContext(called_tools=[])
     server = MCPServer(
         tools=TOOLS,
         name="test",
         version="1.0.0",
-        context=context,
     )
-    client = TestClient(server.app)
-    response_1 = client.post(
-        "/mcp",
-        json={
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "id": 1,
-            "params": {
-                "name": "tool_1",
-                "arguments": {"question": "What is the meaning of life?"},
-            },
-        },
-    )
-    assert response_1.status_code == HTTPStatus.OK
-    response_json = response_1.json()
-    assert response_json == {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": '{"answer":"Hello, What is the meaning of life?!"}',
+    app = mount_mcp_server(server)
+    with TestClient(app) as client:
+        response_1 = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 1,
+                "params": {
+                    "name": "tool_1",
+                    "arguments": {"question": "What is the meaning of life?"},
                 },
-            ],
-            "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
-            "isError": False,
-        },
-    }
-    assert context.called_tools == ["tool_1"]
-
-    response_2 = client.post(
-        "/mcp",
-        json={
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "id": 1,
-            "params": {
-                "name": "tool_2",
-                "arguments": {"user_id": "123"},
             },
-        },
-    )
+        )
+        assert response_1.status_code == HTTPStatus.OK
+        response_json = response_1.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": '{"answer":"Hello, What is the meaning of life?!"}',
+                    },
+                ],
+                "structuredContent": {"answer": "Hello, What is the meaning of life?!"},
+                "isError": False,
+            },
+        }
+        assert client.app_state["context"].called_tools == ["tool_1"]
 
-    assert response_2.status_code == HTTPStatus.OK
-    response_json = response_2.json()
-    assert response_json == {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": '{"user_id":"123","email":"123@example.com"}',
+        response_2 = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 1,
+                "params": {
+                    "name": "tool_2",
+                    "arguments": {"user_id": "123"},
                 },
-            ],
-            "structuredContent": {"user_id": "123", "email": "123@example.com"},
-            "isError": False,
-        },
-    }
-    assert context.called_tools == ["tool_1", "tool_2"]
+            },
+        )
+
+        assert response_2.status_code == HTTPStatus.OK
+        response_json = response_2.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": '{"user_id":"123","email":"123@example.com"}',
+                    },
+                ],
+                "structuredContent": {"user_id": "123", "email": "123@example.com"},
+                "isError": False,
+            },
+        }
+        assert client.app_state["context"].called_tools == ["tool_1", "tool_2"]
 
 
 def test_server_call_tool_with_invalid_arguments() -> None:
-    context = TestContext(called_tools=[])
     server = MCPServer(
         tools=TOOLS,
         name="test",
         version="1.0.0",
-        context=context,
     )
-    client = TestClient(server.app)
+    app = mount_mcp_server(server)
+    client = TestClient(app)
     response = client.post(
         "/mcp",
         json={
@@ -284,18 +273,16 @@ def test_server_call_tool_with_invalid_arguments() -> None:
 
 
 def test_server_call_tool_with_error() -> None:
-    context = TestContext(called_tools=[])
     server = MCPServer(
         tools=(
             Tool(
                 func=tool_that_raises_error,
-                input=TestTool1Arguments,
+                inputs=TestTool1Arguments,
                 output=TestTool1Output,
             ),
         ),
         name="test",
         version="1.0.0",
-        context=context,
     )
     client = TestClient(server.app)
 
@@ -330,7 +317,7 @@ def test_server_call_tool_with_error() -> None:
 
 
 def test_tool_not_found() -> None:
-    server = MCPServer[None](
+    server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",

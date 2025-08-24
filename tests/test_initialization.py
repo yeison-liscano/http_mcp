@@ -3,11 +3,11 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
-from http_mcp.tools import Tool, ToolArguments
+from http_mcp.types import Arguments, Tool
 from tests.models import TestToolArguments, TestToolOutput
 
 
-async def initialization_test_tool(args: ToolArguments[TestToolArguments, None]) -> TestToolOutput:
+async def initialization_test_tool(args: Arguments[TestToolArguments]) -> TestToolOutput:
     """Test tool for initialization testing."""
     return TestToolOutput(answer=f"Initialized with: {args.inputs.question}")
 
@@ -15,7 +15,7 @@ async def initialization_test_tool(args: ToolArguments[TestToolArguments, None])
 TOOLS_INITIALIZATION = (
     Tool(
         func=initialization_test_tool,
-        input=TestToolArguments,
+        inputs=TestToolArguments,
         output=TestToolOutput,
     ),
 )
@@ -23,7 +23,9 @@ TOOLS_INITIALIZATION = (
 
 def test_server_capabilities_with_tools() -> None:
     server = MCPServer(
-        tools=TOOLS_INITIALIZATION, name="capabilities_test", version="1.0.0", context=None,
+        tools=TOOLS_INITIALIZATION,
+        name="capabilities_test",
+        version="1.0.0",
     )
 
     capabilities = server.capabilities
@@ -38,7 +40,6 @@ def test_protocol_initialization() -> None:
         tools=TOOLS_INITIALIZATION,
         name="protocol_test_initialization",
         version="1.0.2",
-        context=None,
     )
     client = TestClient(server.app)
 

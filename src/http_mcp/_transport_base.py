@@ -5,6 +5,7 @@ from http import HTTPStatus
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from http_mcp._transport_types import ProtocolErrorCode
 from http_mcp.exceptions import ProtocolError, ServerError
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.messages import (
@@ -31,7 +32,6 @@ from http_mcp.mcp_types.tools import (
     ToolsListResult,
 )
 from http_mcp.server_interface import ServerInterface
-from http_mcp.transport_types import ProtocolErrorCode
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class BaseTransport:
         if message.method.startswith("tools/"):
             return await self._process_tools_request(message, request)
 
-        return await self._process_prompts_request(message)
+        return await self._process_prompts_request(message, request)
 
     def _handle_initialization(
         self,
@@ -105,6 +105,7 @@ class BaseTransport:
     async def _process_prompts_request(
         self,
         message: JSONRPCRequest,
+        request: Request,
     ) -> PromptsListResponse | JSONRPCError | PromptsGetResponse:
         if message.method == "prompts/list":
             result = self._server.list_prompts()
@@ -119,6 +120,7 @@ class BaseTransport:
             prompt_result = await self._server.get_prompt(
                 validated_message.params.name,
                 validated_message.params.arguments,
+                request,
             )
         except ServerError as e:
             return PromptsGetResponse(
@@ -188,16 +190,20 @@ class BaseTransport:
                 name,
                 arguments,
                 request,
-                self._server.context,
             )
 
             return ToolsCallResponse(
                 jsonrpc="2.0",
                 id=message.id,
                 result=ToolsCallResult(
-                    content=(TextContent(type="text", text=returned_value.model_dump_json()),),
+                    content=(
+                        TextContent(
+                            type="text",
+                            text=returned_value.model_dump_json(by_alias=True),
+                        ),
+                    ),
                     is_error=False,
-                    structured_content=returned_value.model_dump(mode="json"),
+                    structured_content=returned_value.model_dump(mode="json", by_alias=True),
                 ),
             )
         except ProtocolError as e:
