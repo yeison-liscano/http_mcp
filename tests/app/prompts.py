@@ -2,7 +2,8 @@ from pydantic import BaseModel, Field
 
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.prompts import PromptMessage
-from http_mcp.prompts import Prompt
+from http_mcp.types import Arguments, Prompt
+from tests.app.context import Context
 
 
 class GetAdvice(BaseModel):
@@ -13,17 +14,20 @@ class GetAdvice(BaseModel):
     )
 
 
-def get_advice(args: GetAdvice) -> tuple[PromptMessage, ...]:
+def get_advice(args: Arguments[GetAdvice, Context]) -> tuple[PromptMessage, ...]:
     """Get advice on a topic."""
     template = """
     You are a helpful assistant that can give advice on {topic}.
     """
-    if args.include_actionable_steps:
+    if args.inputs.include_actionable_steps:
         template += """
         The advice should include actionable steps.
         """
     return (
-        PromptMessage(role="user", content=TextContent(text=template.format(topic=args.topic))),
+        PromptMessage(
+            role="user",
+            content=TextContent(text=template.format(topic=args.inputs.topic)),
+        ),
     )
 
 

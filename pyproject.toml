@@ -17,7 +17,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-version = "0.2.0"
+version = "0.3.0rc1"
 
 dependencies = ["pydantic==2.11.7", "uvicorn==0.35.0", "starlette==0.47.2"]
 

@@ -5,14 +5,19 @@ from dataclasses import dataclass
 from typing import cast
 
 from pydantic import BaseModel, ValidationError
+from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, PromptInvocationError
 from http_mcp.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
+from http_mcp.types import Arguments
 
 
 @dataclass
-class Prompt[TArguments: BaseModel]:
-    func: Callable[[TArguments], Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...]]
+class Prompt[TArguments: BaseModel, TContext]:
+    func: Callable[
+        [Arguments[TArguments, TContext]],
+        Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
+    ]
     arguments_type: type[TArguments]
 
     @property
@@ -50,7 +55,12 @@ class Prompt[TArguments: BaseModel]:
             arguments=self.arguments,
         )
 
-    async def invoke(self, arguments: dict) -> tuple[PromptMessage, ...]:
+    async def invoke(
+        self,
+        arguments: dict,
+        request: Request,
+        context: TContext,
+    ) -> tuple[PromptMessage, ...]:
         try:
             _arguments = self.arguments_type.model_validate(arguments)
         except ValidationError as e:
@@ -58,9 +68,12 @@ class Prompt[TArguments: BaseModel]:
 
         try:
             if inspect.iscoroutinefunction(self.func):
-                return await self.func(_arguments)
+                return await self.func(Arguments(request, _arguments, context))
 
-            _func = cast("Callable[[TArguments], tuple[PromptMessage, ...]]", self.func)
-            return await asyncio.to_thread(_func, _arguments)
+            _func = cast(
+                "Callable[[Arguments[TArguments, TContext]], tuple[PromptMessage, ...]]",
+                self.func,
+            )
+            return await asyncio.to_thread(_func, Arguments(request, _arguments, context))
         except Exception as e:
             raise PromptInvocationError(self.name, "Unknown error") from e
