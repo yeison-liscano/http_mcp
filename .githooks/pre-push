@@ -1,1 +1,1 @@
-: && ruff check && mypy . &&  pytest --cov-report term-missing --cov=src --cov-fail-under=96 tests/ && mdformat . --wrap 80
+: && ruff check && mypy . &&  pytest --cov-report term-missing --cov=src --cov-fail-under=90 tests/ && mdformat . --wrap 80

@@ -17,19 +17,19 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-version = "0.3.0"
+version = "0.4.0"
 
-dependencies = ["pydantic==2.11.7", "uvicorn==0.35.0", "starlette==0.47.2"]
+dependencies = ["pydantic==2.12.3", "uvicorn==0.37.0", "starlette==0.48.0"]
 
 [dependency-groups]
 dev = [
     "httpx==0.28.1",
-    "mdformat==0.7.22",
-    "mypy==1.17.1",
-    "pytest==8.4.1",
-    "ruff==0.12.9",
-    "pytest-cov==6.2.1",
-    "pytest-asyncio==1.1.0",
+    "mdformat==1.0.0",
+    "mypy==1.18.2",
+    "pytest==8.4.2",
+    "ruff==0.14.1",
+    "pytest-cov==7.0.0",
+    "pytest-asyncio==1.2.0",
 ]
 
 [tool.hatch.build.targets.wheel]

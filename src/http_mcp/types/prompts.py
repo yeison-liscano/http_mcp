@@ -7,7 +7,7 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
-from http_mcp.exceptions import ArgumentsError, PromptInvocationError
+from http_mcp.exceptions import ArgumentsError, PromptInvocationError, ServerError
 from http_mcp.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 from http_mcp.types import Arguments
 
@@ -74,5 +74,7 @@ class Prompt[TArguments: BaseModel]:
                 self.func,
             )
             return await asyncio.to_thread(_func, Arguments(request, _arguments))
+        except ServerError:
+            raise
         except Exception as e:
             raise PromptInvocationError(self.name, "Unknown error") from e

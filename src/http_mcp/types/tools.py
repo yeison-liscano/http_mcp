@@ -7,7 +7,7 @@ from typing import Generic, TypeVar, cast
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
-from http_mcp.exceptions import ArgumentsError, ToolInvocationError
+from http_mcp.exceptions import ArgumentsError, ServerError, ToolInvocationError
 from http_mcp.types.models import Arguments
 
 _TArguments_contra = TypeVar("_TArguments_contra", bound=BaseModel, contravariant=True)
@@ -77,6 +77,8 @@ class Tool(Generic[_TArguments_contra, _TOutput_contra]):
                 self.func,
             )
             return await asyncio.to_thread(_func, _args)
+        except ServerError:
+            raise
         except Exception as e:
             raise ToolInvocationError(self.name, "Unknown error") from e
 

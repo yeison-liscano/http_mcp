@@ -267,7 +267,7 @@ def test_server_call_tool_with_invalid_arguments() -> None:
             "message": "Protocol error: Error validating arguments for tool tool_1: "
             '[{"type":"missing","loc":["question"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
-            'life?"},"url":"https://errors.pydantic.dev/2.11/v/missing"}]',
+            'life?"},"url":"https://errors.pydantic.dev/2.12/v/missing"}]',
         },
     }
 
