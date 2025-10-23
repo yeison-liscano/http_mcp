@@ -19,11 +19,13 @@ class MCPServer(ServerInterface):
         version: str,
         tools: tuple[Tool[_TArguments_contra, _TOutput_contra], ...] = (),
         prompts: tuple[Prompt, ...] = (),
+        instructions: str | None = None,
     ) -> None:
         self._version = version
         self._name = name
         self._tools = tools
         self._prompts = prompts
+        self._instructions = instructions
         self._http_transport = HTTPTransport(self)
         self._stdio_transport = StdioTransport(self)
 
@@ -40,6 +42,10 @@ class MCPServer(ServerInterface):
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def instructions(self) -> str | None:
+        return self._instructions
 
     @property
     def capabilities(self) -> ServerCapabilities:

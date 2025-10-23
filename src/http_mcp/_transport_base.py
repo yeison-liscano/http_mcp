@@ -82,6 +82,7 @@ class BaseTransport:
                 result=InitializeResponseResult(
                     protocol_version=protocol_version,
                     capabilities=self._server.capabilities,
+                    instructions=self._server.instructions,
                     server_info=ServerInfo(name=self._server.name, version=self._server.version),
                 ),
             )

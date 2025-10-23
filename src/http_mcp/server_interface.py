@@ -20,6 +20,11 @@ class ServerInterface(ABC):
 
     @property
     @abstractmethod
+    def instructions(self) -> str | None:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
     def capabilities(self) -> ServerCapabilities:
         raise NotImplementedError
 
