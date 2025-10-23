@@ -20,9 +20,9 @@ DUMMY_TOOL = Tool(
 )
 
 DUMMY_SERVER = MCPServer(
-    name="test",
-    version="1.0.0",
-    tools=(DUMMY_TOOL,),
+    "test",
+    "1.0.0",
+    (DUMMY_TOOL,),
 )
 
 
