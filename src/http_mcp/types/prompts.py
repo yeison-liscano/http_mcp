@@ -24,7 +24,7 @@ class Prompt[TArguments: BaseModel]:
     def arguments(self) -> tuple[PromptArgument, ...]:
         schema = self.arguments_type.model_json_schema()
 
-        required = schema["required"]
+        required = schema.get("required", [])
 
         return tuple(
             PromptArgument(
