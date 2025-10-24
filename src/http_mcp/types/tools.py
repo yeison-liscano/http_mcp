@@ -47,13 +47,13 @@ class Tool(Generic[_TArguments_contra, _TOutput_contra]):
 
     @property
     def input_schema(self) -> dict:
-        schema = self.inputs.model_json_schema()
+        schema = self.inputs.model_json_schema(by_alias=False)
         schema["title"] = self.name + "Arguments"
         return schema
 
     @property
     def output_schema(self) -> dict:
-        schema = self.output.model_json_schema()
+        schema = self.output.model_json_schema(by_alias=False)
         schema["title"] = self.name + "Output"
         return schema
 
