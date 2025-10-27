@@ -8,7 +8,7 @@ from http_mcp.exceptions import ServerError
 
 
 @dataclass
-class Arguments[TInputs: BaseModel]:
+class Arguments[TInputs: BaseModel | None]:
     request: Request
     inputs: TInputs
 
