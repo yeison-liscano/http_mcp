@@ -30,9 +30,25 @@ def get_advice(args: Arguments[GetAdvice]) -> tuple[PromptMessage, ...]:
     )
 
 
+def get_advice_without_arguments() -> tuple[PromptMessage, ...]:
+    """Use this prompt to help the user write test for prompt module."""
+    return (
+        PromptMessage(
+            role="user",
+            content=TextContent(
+                text="Your objective is to help the user write test for prompt module.",
+            ),
+        ),
+    )
+
+
 PROMPTS = (
     Prompt(
         func=get_advice,
         arguments_type=GetAdvice,
+    ),
+    Prompt(
+        func=get_advice_without_arguments,
+        arguments_type=type(None),
     ),
 )

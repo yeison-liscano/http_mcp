@@ -33,6 +33,21 @@ def prompt_that_raises_error(_arg: Arguments[TestArguments]) -> tuple[PromptMess
     raise ValueError
 
 
+def prompt_without_arguments() -> tuple[PromptMessage, ...]:
+    """Test prompt without arguments."""
+    return (PromptMessage(role="user", content=TextContent(text="No arguments here.")),)
+
+
+async def prompt_without_arguments_async() -> tuple[PromptMessage, ...]:
+    """Test prompt without arguments async."""
+    return (PromptMessage(role="user", content=TextContent(text="No arguments here.")),)
+
+
+def prompt_without_arguments_error() -> tuple[PromptMessage, ...]:
+    """Test prompt without arguments error."""
+    raise ValueError
+
+
 PROMPT_SYNC = Prompt(
     func=prompt_sync,
     arguments_type=TestArguments,
@@ -49,8 +64,31 @@ PROMPT_ERROR = Prompt(
     arguments_type=TestArguments,
 )
 
+PROMPT_WITHOUT_ARGUMENTS_SYNC = Prompt(
+    func=prompt_without_arguments,
+    arguments_type=type(None),
+)
 
-@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+PROMPT_WITHOUT_ARGUMENTS_ASYNC = Prompt(
+    func=prompt_without_arguments_async,
+    arguments_type=type(None),
+)
+
+PROMPT_WITHOUT_ARGUMENTS_ERROR = Prompt(
+    func=prompt_without_arguments_error,
+    arguments_type=type(None),
+)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        PROMPT_SYNC,
+        PROMPT_ASYNC,
+        PROMPT_WITHOUT_ARGUMENTS_SYNC,
+        PROMPT_WITHOUT_ARGUMENTS_ASYNC,
+    ],
+)
 def test_prompt_list(prompt: Prompt) -> None:
     server = MCPServer(
         tools=(),
@@ -88,7 +126,9 @@ def test_prompt_list(prompt: Prompt) -> None:
                             "name": "argument_4",
                             "required": False,
                         },
-                    ],
+                    ]
+                    if not issubclass(prompt.arguments_type, type(None))
+                    else [],
                     "description": prompt.description,
                     "name": prompt.name,
                     "title": prompt.title,
@@ -98,7 +138,15 @@ def test_prompt_list(prompt: Prompt) -> None:
     }
 
 
-@pytest.mark.parametrize("prompt", [PROMPT_SYNC, PROMPT_ASYNC])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        PROMPT_SYNC,
+        PROMPT_ASYNC,
+        PROMPT_WITHOUT_ARGUMENTS_SYNC,
+        PROMPT_WITHOUT_ARGUMENTS_ASYNC,
+    ],
+)
 def test_prompt_get(prompt: Prompt) -> None:
     server = MCPServer(
         tools=(),
@@ -120,7 +168,9 @@ def test_prompt_get(prompt: Prompt) -> None:
                     "argument_2": "test",
                     "argument_3": False,
                     "argument_4": 2.0,
-                },
+                }
+                if not issubclass(prompt.arguments_type, type(None))
+                else {},
             },
         },
     )
@@ -137,6 +187,8 @@ def test_prompt_get(prompt: Prompt) -> None:
                     "content": {
                         "text": (
                             '{"argument_1":1,"argument_2":"test","argument_3":false,"argument_4":2.0}'
+                            if not issubclass(prompt.arguments_type, type(None))
+                            else "No arguments here."
                         ),
                         "type": "text",
                     },
@@ -238,12 +290,13 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
     }
 
 
-def test_server_call_prompt_with_error() -> None:
+@pytest.mark.parametrize("prompt", [PROMPT_ERROR, PROMPT_WITHOUT_ARGUMENTS_ERROR])
+def test_server_call_prompt_with_error(prompt: Prompt) -> None:
     server = MCPServer(
         tools=(),
         name="test",
         version="1.0.0",
-        prompts=(PROMPT_ERROR,),
+        prompts=(prompt,),
     )
     client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
@@ -253,7 +306,7 @@ def test_server_call_prompt_with_error() -> None:
             "method": "prompts/get",
             "id": 1,
             "params": {
-                "name": PROMPT_ERROR.name,
+                "name": prompt.name,
                 "arguments": {
                     "argument_1": 1,
                     "argument_2": "test",
@@ -269,8 +322,7 @@ def test_server_call_prompt_with_error() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "description": "Server error: Error getting prompt prompt_that_raises_error: "
-            "Unknown error",
+            "description": f"Server error: Error getting prompt {prompt.name}: Unknown error",
             "messages": [],
         },
     }

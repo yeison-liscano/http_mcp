@@ -13,15 +13,24 @@ from http_mcp.types import Arguments
 
 
 @dataclass
-class Prompt[TArguments: BaseModel]:
-    func: Callable[
-        [Arguments[TArguments]],
-        Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
-    ]
+class Prompt[TArguments: BaseModel | None]:
+    func: (
+        Callable[
+            [Arguments[TArguments]],
+            Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
+        ]
+        | Callable[
+            [],
+            Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
+        ]
+    )
     arguments_type: type[TArguments]
 
     @property
     def arguments(self) -> tuple[PromptArgument, ...]:
+        if issubclass(self.arguments_type, type(None)):
+            return ()
+
         schema = self.arguments_type.model_json_schema()
 
         required = schema.get("required", [])
@@ -32,7 +41,7 @@ class Prompt[TArguments: BaseModel]:
                 description=values.get("description", name.title()),
                 required=name in required,
             )
-            for name, values in self.arguments_type.model_json_schema()["properties"].items()
+            for name, values in schema["properties"].items()
         )
 
     @property
@@ -60,6 +69,24 @@ class Prompt[TArguments: BaseModel]:
         arguments: dict,
         request: Request,
     ) -> tuple[PromptMessage, ...]:
+        # Handle functions without arguments
+        if issubclass(self.arguments_type, type(None)):
+            try:
+                if inspect.iscoroutinefunction(self.func):
+                    return await self.func()
+
+                return await asyncio.to_thread(
+                    cast(
+                        "Callable[[], tuple[PromptMessage, ...]]",
+                        self.func,
+                    ),
+                )
+            except ServerError:
+                raise
+            except Exception as e:
+                raise PromptInvocationError(self.name, "Unknown error") from e
+
+        # Handle functions with arguments
         try:
             _arguments = self.arguments_type.model_validate(arguments)
         except ValidationError as e:

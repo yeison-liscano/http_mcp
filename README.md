@@ -6,13 +6,6 @@ prompts that can be discovered and executed remotely via a JSON-RPC interface.
 It is intended to be used with a Starlette or FastAPI application (see
 [demo](https://github.com/yeison-liscano/demo_http_mcp)).
 
-The following badge corresponds to the example server for this project. Find it
-in the [tests/app/ folder](tests/app).
-
-<a href="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@yeison-liscano/http_mcp/badge" alt="Simple HTTP Server MCP server" />
-</a>
-
 ## Features
 
 - **MCP Protocol Compliant**: Implements the MCP specification for tool and
