@@ -1,0 +1,26 @@
+strict: true # exit code different from 0 if any vulnerability is found
+output:
+  file_path: ./Fluid-Attacks-Results.csv
+  format: CSV
+working_dir: .
+language: EN
+
+sast:
+  include:
+    - src/
+    - tests/
+  exclude:
+    - __pycache__/
+    - .venv/
+    - dist/
+    - .git/
+    - src/__pycache__/
+    - tests/__pycache__/
+  recursion-limit: 1000
+
+sca:
+  include:
+    - pyproject.toml
+    - uv.lock
+    - src/
+    - tests/
