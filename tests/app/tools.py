@@ -25,17 +25,12 @@ async def get_weather(args: Arguments[GetWeatherInput]) -> GetWeatherOutput:
     )
 
 
-class GetTimeInput(BaseModel):
-    pass
-
-
 class GetTimeOutput(BaseModel):
     time: str = Field(description="The current time")
 
 
-async def get_time(args: Arguments[GetTimeInput]) -> GetTimeOutput:
+async def get_time() -> GetTimeOutput:
     """Get the current time."""
-    args.get_state_key("context", Context).add_called_tool("get_time")
     return GetTimeOutput(time=datetime.now(UTC).strftime("%H:%M:%S"))
 
 
@@ -82,7 +77,7 @@ TOOLS = (
     ),
     Tool(
         func=get_time,
-        inputs=GetTimeInput,
+        inputs=type(None),
         output=GetTimeOutput,
     ),
     Tool(
