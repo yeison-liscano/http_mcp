@@ -27,6 +27,10 @@ class TestTool2Output(BaseModel):
     email: str = Field(description="The email address of the user")
 
 
+class TestToolWithoutArgumentsOutput(BaseModel):
+    message: str = Field(description="The message to return")
+
+
 async def tool_1(args: Arguments[TestTool1Arguments]) -> TestTool1Output:
     """Return a simple answer."""
     assert args.inputs.question == "What is the meaning of life?"
@@ -45,10 +49,25 @@ def tool_2(args: Arguments[TestTool2Arguments]) -> TestTool2Output:
     return TestTool2Output(user_id=args.inputs.user_id, email=f"{args.inputs.user_id}@example.com")
 
 
+def tool_without_arguments() -> TestToolWithoutArgumentsOutput:
+    """Return a simple message."""
+    return TestToolWithoutArgumentsOutput(message="Hello, world!")
+
+
+async def tool_without_arguments_async() -> TestToolWithoutArgumentsOutput:
+    """Return a simple message."""
+    return TestToolWithoutArgumentsOutput(message="Hello, world!")
+
+
 def tool_that_raises_error(
     _args: Arguments[TestTool1Arguments],
 ) -> TestTool1Output:
     """Return a simple answer."""
+    raise ValueError
+
+
+def tool_without_arguments_that_raises_error() -> TestToolWithoutArgumentsOutput:
+    """Return a simple message."""
     raise ValueError
 
 
@@ -62,6 +81,16 @@ TOOLS = (
         func=tool_2,
         inputs=TestTool2Arguments,
         output=TestTool2Output,
+    ),
+    Tool(
+        func=tool_without_arguments,
+        inputs=type(None),
+        output=TestToolWithoutArgumentsOutput,
+    ),
+    Tool(
+        func=tool_without_arguments_async,
+        inputs=type(None),
+        output=TestToolWithoutArgumentsOutput,
     ),
 )
 
@@ -161,6 +190,62 @@ def test_list_tools() -> None:
                     },
                     "meta": None,
                 },
+                {
+                    "annotations": {
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                        "readOnlyHint": False,
+                        "title": "Tool Without Arguments",
+                    },
+                    "description": "Return a simple message.",
+                    "inputSchema": {},
+                    "meta": None,
+                    "name": "tool_without_arguments",
+                    "outputSchema": {
+                        "properties": {
+                            "message": {
+                                "description": "The message to return",
+                                "title": "Message",
+                                "type": "string",
+                            },
+                        },
+                        "required": [
+                            "message",
+                        ],
+                        "title": "tool_without_argumentsOutput",
+                        "type": "object",
+                    },
+                    "title": "Tool Without Arguments",
+                },
+                {
+                    "annotations": {
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                        "readOnlyHint": False,
+                        "title": "Tool Without Arguments Async",
+                    },
+                    "description": "Return a simple message.",
+                    "inputSchema": {},
+                    "meta": None,
+                    "name": "tool_without_arguments_async",
+                    "outputSchema": {
+                        "properties": {
+                            "message": {
+                                "description": "The message to return",
+                                "title": "Message",
+                                "type": "string",
+                            },
+                        },
+                        "required": [
+                            "message",
+                        ],
+                        "title": "tool_without_arguments_asyncOutput",
+                        "type": "object",
+                    },
+                    "title": "Tool Without Arguments Async",
+                },
             ],
             "nextCursor": "",
         },
@@ -236,6 +321,59 @@ def test_server_call_tools() -> None:
         }
         assert client.app_state["context"].called_tools == ["tool_1", "tool_2"]
 
+        response_3 = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 3,
+                "params": {
+                    "name": "tool_without_arguments",
+                    "arguments": {},
+                },
+            },
+        )
+        assert response_3.status_code == HTTPStatus.OK
+        response_json = response_3.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+                "content": [{"type": "text", "text": '{"message":"Hello, world!"}'}],
+                "structuredContent": {"message": "Hello, world!"},
+                "isError": False,
+            },
+        }
+        assert client.app_state["context"].called_tools == [
+            "tool_1",
+            "tool_2",
+        ]
+
+        response_4 = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 4,
+                "params": {"name": "tool_without_arguments_async", "arguments": {}},
+            },
+        )
+        assert response_4.status_code == HTTPStatus.OK
+        response_json = response_4.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+                "content": [{"type": "text", "text": '{"message":"Hello, world!"}'}],
+                "structuredContent": {"message": "Hello, world!"},
+                "isError": False,
+            },
+        }
+        assert client.app_state["context"].called_tools == [
+            "tool_1",
+            "tool_2",
+        ]
+
 
 def test_server_call_tool_with_invalid_arguments() -> None:
     server = MCPServer(
@@ -280,40 +418,48 @@ def test_server_call_tool_with_error() -> None:
                 inputs=TestTool1Arguments,
                 output=TestTool1Output,
             ),
+            Tool(
+                func=tool_without_arguments_that_raises_error,
+                inputs=type(None),
+                output=TestToolWithoutArgumentsOutput,
+            ),
         ),
         name="test",
         version="1.0.0",
     )
     client = TestClient(server.app)
 
-    response = client.post(
-        "/mcp",
-        json={
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "id": 1,
-            "params": {
-                "name": "tool_that_raises_error",
-                "arguments": {"question": "What is the meaning of life?"},
-            },
-        },
-    )
-    assert response.status_code == HTTPStatus.OK
-    response_json = response.json()
-    assert response_json == {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Server error: Error calling tool tool_that_raises_error: "
-                    "Unknown error",
+    for tool in (tool_that_raises_error, tool_without_arguments_that_raises_error):
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 1,
+                "params": {
+                    "name": tool.__name__,
+                    "arguments": {"question": "What is the meaning of life?"}
+                    if tool.__name__ == tool_that_raises_error.__name__
+                    else {},
                 },
-            ],
-            "isError": True,
-        },
-    }
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        response_json = response.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Server error: Error calling tool {tool.__name__}: "
+                        f"Unknown error",
+                    },
+                ],
+                "isError": True,
+            },
+        }
 
 
 def test_tool_not_found() -> None:

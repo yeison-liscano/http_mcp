@@ -9,7 +9,6 @@ from http_mcp.mcp_types.capabilities import Capability, ServerCapabilities
 from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
 from http_mcp.server_interface import ServerInterface
 from http_mcp.types import Prompt, Tool
-from http_mcp.types.tools import _TArguments_contra, _TOutput_contra
 
 
 class MCPServer(ServerInterface):
@@ -17,7 +16,7 @@ class MCPServer(ServerInterface):
         self,
         name: str,
         version: str,
-        tools: tuple[Tool[_TArguments_contra, _TOutput_contra], ...] = (),
+        tools: tuple[Tool, ...] = (),
         prompts: tuple[Prompt, ...] = (),
         instructions: str | None = None,
     ) -> None:
