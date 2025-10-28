@@ -199,7 +199,11 @@ def test_list_tools() -> None:
                         "title": "Tool Without Arguments",
                     },
                     "description": "Return a simple message.",
-                    "inputSchema": {},
+                    "inputSchema": {
+                        "properties": {},
+                        "title": "tool_without_argumentsArguments",
+                        "type": "object",
+                    },
                     "meta": None,
                     "name": "tool_without_arguments",
                     "outputSchema": {
@@ -227,7 +231,11 @@ def test_list_tools() -> None:
                         "title": "Tool Without Arguments Async",
                     },
                     "description": "Return a simple message.",
-                    "inputSchema": {},
+                    "inputSchema": {
+                        "properties": {},
+                        "title": "tool_without_arguments_asyncArguments",
+                        "type": "object",
+                    },
                     "meta": None,
                     "name": "tool_without_arguments_async",
                     "outputSchema": {
@@ -453,8 +461,7 @@ def test_server_call_tool_with_error() -> None:
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Server error: Error calling tool {tool.__name__}: "
-                        f"Unknown error",
+                        "text": f"Server error: Error calling tool {tool.__name__}: Unknown error",
                     },
                 ],
                 "isError": True,

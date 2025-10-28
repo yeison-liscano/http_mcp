@@ -51,9 +51,13 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     @property
     def input_schema(self) -> dict:
         if issubclass(self.inputs, type(None)):
-            return {}
 
-        schema = self.inputs.model_json_schema(by_alias=False)
+            class EmptyInput(BaseModel):
+                pass
+
+            schema = EmptyInput.model_json_schema(by_alias=False)
+        else:
+            schema = self.inputs.model_json_schema(by_alias=False)
         schema["title"] = self.name + "Arguments"
         return schema
 
