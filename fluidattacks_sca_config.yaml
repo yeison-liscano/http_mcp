@@ -1,0 +1,29 @@
+# Fluid Attacks SCA Scanner Configuration
+# Software Composition Analysis - Dependency Scanning
+
+# Break the build if vulnerabilities are found
+strict: true
+
+# General configuration
+namespace: simple-http-mcp
+working_dir: .
+language: EN
+
+# SCA specific configuration
+sca:
+  # Files and directories to scan for dependencies
+  include:
+    - pyproject.toml      # Python project dependencies
+    - uv.lock             # UV lock file with exact versions
+    - src/                # Source code directory
+    - tests/              # Test code directory
+  
+  # Exclude false positives and non-relevant paths
+  exclude:
+    - glob(**/__pycache__/)   # Python cache directories
+    - glob(**/.venv/)         # Virtual environment
+    - glob(**/.git/)          # Git metadata
+    - glob(**/dist/)          # Build artifacts
+    - glob(**/*.pyc)          # Compiled Python files
+    - .venv/
+
