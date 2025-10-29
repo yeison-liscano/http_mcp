@@ -1,0 +1,42 @@
+# Fluid Attacks SAST Scanner Configuration
+# Static Application Security Testing - Source Code Analysis
+
+# Break the build if vulnerabilities are found
+strict: true
+
+# General configuration
+namespace: simple-http-mcp
+working_dir: .
+language: EN
+
+# Remove file size limit to scan all files
+# Set to false if large files need to be analyzed
+file_size_limit: false
+
+# SAST specific configuration
+sast:
+  # Files and directories to scan for security vulnerabilities
+  # Using . to scan everything from working directory
+  include:
+    - src/                # Scan all files from working directory
+
+  # Exclude non-relevant paths and dependencies
+  exclude:
+    - glob(**/__pycache__/)   # Python cache directories
+    - glob(**/.venv/)         # Virtual environment
+    - glob(**/.git/)          # Git metadata
+    - glob(**/dist/)          # Build artifacts
+    - glob(**/*.pyc)          # Compiled Python files
+    - glob(**/node_modules/)  # JavaScript dependencies (if any)
+    - glob(**/.pytest_cache/) # Pytest cache
+    - glob(**/*.whl)          # Python wheel files
+    - glob(**/*.tar.gz)       # Compressed archives
+    - .venv/
+    - assets/
+    - dist/
+    - glob(*_cache/)
+
+  # Recursion limit to prevent long analysis times
+  # Recommended value: 1000
+  recursion-limit: 1000
+
