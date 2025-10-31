@@ -46,10 +46,10 @@ async def tool_that_access_request(
     args: Arguments[ToolThatAccessRequest],
 ) -> ToolThatAccessRequestOutput:
     """Access the request."""
-    req_authentication = args.request.headers.get("Authorization")
+    test_header = args.request.headers.get("X-TEST-HEADER")
     args.get_state_key("context", Context).add_called_tool("tool_that_access_request")
     return ToolThatAccessRequestOutput(
-        message=f"Hello {args.inputs.username} you are authenticated with {req_authentication}",
+        message=f"Hello {args.inputs.username} you are authenticated with {test_header}",
     )
 
 

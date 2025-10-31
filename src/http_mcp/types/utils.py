@@ -31,6 +31,7 @@ def generate_union_schema(
 
     return {
         "$defs": all_defs,
+        "type": "object",
         "oneOf": [
             {"$ref": f"#/$defs/{type_a.__name__}"},
             {"$ref": f"#/$defs/{type_b.__name__}"},
