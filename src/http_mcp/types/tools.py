@@ -8,11 +8,31 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, ServerError, ToolInvocationError
-from http_mcp.types.models import Arguments
+from http_mcp.types.models import Arguments, InvocationResult
 
 
 @dataclass
 class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
+    """Represents a tool that can be invoked with validated arguments.
+
+    Attributes:
+        func: The function to be invoked when the tool is called. Can be either:
+            - A function that accepts Arguments[TInputs] parameter
+            - A function that accepts no parameters
+            Both sync and async functions are supported.
+
+        inputs: The Pydantic model class that defines and validates the input schema.
+            Use None if the tool accepts no arguments.
+
+        output: The Pydantic model class that defines the output schema.
+            This model is used to generate the tool's output schema.
+
+        return_error_message: If True, wraps the output in an InvocationResult that
+            includes error message when the tool invocation raises a ToolInvocationError.
+            If False (default), returns the raw output model directly.
+
+    """
+
     func: (
         Callable[
             [Arguments[TInputs]],
@@ -25,6 +45,8 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     )
     inputs: type[TInputs]
     output: type[TOutput]
+
+    return_error_message: bool = False
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
@@ -63,11 +85,14 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
 
     @property
     def output_schema(self) -> dict:
-        schema = self.output.model_json_schema(by_alias=False)
+        if self.return_error_message:
+            schema = InvocationResult[TOutput].generate_json_schema(self.output)
+        else:
+            schema = self.output.model_json_schema(by_alias=False)
         schema["title"] = self.name + "Output"
         return schema
 
-    async def invoke(
+    async def _invoke(
         self,
         args: dict,
         request: Request,
@@ -108,6 +133,18 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
             raise
         except Exception as e:
             raise ToolInvocationError(self.name, "Unknown error") from e
+
+    async def invoke(
+        self,
+        args: dict,
+        request: Request,
+    ) -> TOutput | InvocationResult[TOutput]:
+        try:
+            return await self._invoke(args, request)
+        except ToolInvocationError as e:
+            if self.return_error_message:
+                return InvocationResult[TOutput](output=None, error_message=e.message)
+            raise
 
     def generate_json_schema(self) -> dict:
         return {

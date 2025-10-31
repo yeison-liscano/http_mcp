@@ -25,3 +25,24 @@ class Arguments[TInputs: BaseModel | None]:
             raise ServerError(message)
 
         return cast("TKey", self.request.state.__getattr__(key))
+
+
+class InvocationResult[TOutput: BaseModel](BaseModel):
+    output: TOutput | None
+    error_message: str | None
+
+    @classmethod
+    def generate_json_schema(cls, output_class: type[TOutput]) -> dict:
+        schema = cls.model_json_schema(by_alias=False)
+        output_schema = output_class.model_json_schema(by_alias=False)
+
+        schema["$defs"] = {output_class.__name__: output_schema}
+
+        output = [val for val in schema["properties"]["output"]["anyOf"] if "$ref" not in val]
+
+        schema["properties"]["output"]["anyOf"] = [
+            {"$ref": f"#/$defs/{output_class.__name__}"},
+            *output,
+        ]
+
+        return schema

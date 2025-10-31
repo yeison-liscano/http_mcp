@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
 from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp.exceptions import ToolInvocationError
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Tool
 from tests.app.context import Context
@@ -71,6 +72,13 @@ def tool_without_arguments_that_raises_error() -> TestToolWithoutArgumentsOutput
     raise ValueError
 
 
+def tool_that_raises_invocation_result(
+    _args: Arguments[TestTool1Arguments],
+) -> TestTool1Output:
+    """Return a simple answer."""
+    raise ToolInvocationError("tool_that_returns_invocation_result", "Feedback here")
+
+
 TOOLS = (
     Tool(
         func=tool_1,
@@ -91,6 +99,12 @@ TOOLS = (
         func=tool_without_arguments_async,
         inputs=type(None),
         output=TestToolWithoutArgumentsOutput,
+    ),
+    Tool(
+        func=tool_that_raises_invocation_result,
+        inputs=TestTool1Arguments,
+        output=TestTool1Output,
+        return_error_message=True,
     ),
 )
 
@@ -253,6 +267,64 @@ def test_list_tools() -> None:
                         "type": "object",
                     },
                     "title": "Tool Without Arguments Async",
+                },
+                {
+                    "annotations": {
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                        "readOnlyHint": False,
+                        "title": "Tool That Raises Invocation Result",
+                    },
+                    "description": "Return a simple answer.",
+                    "inputSchema": {
+                        "properties": {
+                            "question": {
+                                "description": "The question to answer",
+                                "title": "Question",
+                                "type": "string",
+                            },
+                        },
+                        "required": [
+                            "question",
+                        ],
+                        "title": "tool_that_raises_invocation_resultArguments",
+                        "type": "object",
+                    },
+                    "meta": None,
+                    "name": "tool_that_raises_invocation_result",
+                    "outputSchema": {
+                        "$defs": {
+                            "TestTool1Output": {
+                                "title": "TestTool1Output",
+                                "type": "object",
+                                "properties": {
+                                    "answer": {
+                                        "title": "Answer",
+                                        "type": "string",
+                                        "description": "The answer to the question",
+                                    },
+                                },
+                                "required": ["answer"],
+                            },
+                        },
+                        "properties": {
+                            "output": {
+                                "anyOf": [
+                                    {"$ref": "#/$defs/TestTool1Output"},
+                                    {"type": "null"},
+                                ],
+                            },
+                            "error_message": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "title": "Error Message",
+                            },
+                        },
+                        "required": ["output", "error_message"],
+                        "title": "tool_that_raises_invocation_resultOutput",
+                        "type": "object",
+                    },
+                    "title": "Tool That Raises Invocation Result",
                 },
             ],
             "nextCursor": "",
