@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
+from starlette.authentication import has_required_scope
 
-from http_mcp.types import Arguments, Tool
+from http_mcp.types import Arguments, NoArguments, Tool
 from tests.app.context import Context
 
 
@@ -15,6 +16,10 @@ class GetWeatherInput(BaseModel):
 
 class GetWeatherOutput(BaseModel):
     weather: str = Field(description="The weather in the given location")
+
+
+class SimpleOutput(BaseModel):
+    success: bool = Field(description="Whether the operation was successful", default=True)
 
 
 async def get_weather(args: Arguments[GetWeatherInput]) -> GetWeatherOutput:
@@ -53,6 +58,25 @@ async def tool_that_access_request(
     )
 
 
+def private_tool(args: Arguments[NoArguments]) -> SimpleOutput:
+    """Private tool that is only accessible to authenticated users."""
+    assert has_required_scope(args.request, ("private",))
+
+    args.get_state_key("context", Context).add_called_tool("private_tool")
+    return SimpleOutput(success=True)
+
+
+async def private_multi_scope_tool(args: Arguments[NoArguments]) -> SimpleOutput:
+    """Private tool that.
+
+    Can be accessed by authenticated users with the 'private' or 'superuser' scopes.
+    """
+    assert has_required_scope(args.request, ("private", "superuser"))
+
+    args.get_state_key("context", Context).add_called_tool("private_multi_scope_tool")
+    return SimpleOutput(success=True)
+
+
 class GetCalledToolsInput(BaseModel):
     pass
 
@@ -89,5 +113,17 @@ TOOLS = (
         func=get_called_tools,
         inputs=GetCalledToolsInput,
         output=GetCalledToolsOutput,
+    ),
+    Tool(
+        func=private_tool,
+        inputs=NoArguments,
+        output=SimpleOutput,
+        scopes=("private",),
+    ),
+    Tool(
+        func=private_multi_scope_tool,
+        inputs=NoArguments,
+        output=SimpleOutput,
+        scopes=("private", "superuser"),
     ),
 )

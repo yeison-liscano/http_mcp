@@ -32,6 +32,9 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         will be returned instead of returning a JSONRPCError.
         If False (default), returns the raw output model directly or raises a ToolInvocationError.
 
+        scopes: Works the same as starlette's scope. Is used to exposed tools given authorization
+        scopes.
+
     """
 
     func: (
@@ -46,8 +49,8 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     )
     inputs: type[TInputs]
     output: type[TOutput]
-
     return_error_message: bool = False
+    scopes: tuple[str, ...] = ()
 
     @property
     def annotations(self) -> Mapping[str, str | bool]:
