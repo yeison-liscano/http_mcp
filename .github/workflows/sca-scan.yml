@@ -1,5 +1,5 @@
 name: SCA Security Scan
-on: [push, pull_request]
+on: [push]
 
 jobs:
   sca-scan:
