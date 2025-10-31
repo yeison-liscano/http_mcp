@@ -295,6 +295,24 @@ def test_list_tools() -> None:
                     "name": "tool_that_raises_invocation_result",
                     "outputSchema": {
                         "$defs": {
+                            "ErrorMessage": {
+                                "description": (
+                                    "Returned feedback if the tool invocation was not successful."
+                                ),
+                                "properties": {
+                                    "error_message": {
+                                        "description": (
+                                            "The error message if the tool invocation was not "
+                                            "successful"
+                                        ),
+                                        "title": "Error Message",
+                                        "type": "string",
+                                    },
+                                },
+                                "required": ["error_message"],
+                                "title": "ErrorMessage",
+                                "type": "object",
+                            },
                             "TestTool1Output": {
                                 "title": "TestTool1Output",
                                 "type": "object",
@@ -308,21 +326,11 @@ def test_list_tools() -> None:
                                 "required": ["answer"],
                             },
                         },
-                        "properties": {
-                            "output": {
-                                "anyOf": [
-                                    {"$ref": "#/$defs/TestTool1Output"},
-                                    {"type": "null"},
-                                ],
-                            },
-                            "error_message": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "title": "Error Message",
-                            },
-                        },
-                        "required": ["output", "error_message"],
+                        "oneOf": [
+                            {"$ref": "#/$defs/TestTool1Output"},
+                            {"$ref": "#/$defs/ErrorMessage"},
+                        ],
                         "title": "tool_that_raises_invocation_resultOutput",
-                        "type": "object",
                     },
                     "title": "Tool That Raises Invocation Result",
                 },
