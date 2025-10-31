@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from starlette.authentication import has_required_scope
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
@@ -54,8 +55,12 @@ class MCPServer(ServerInterface):
             tools=capability if self._tools else None,
         )
 
-    def list_tools(self) -> tuple[dict, ...]:
-        return tuple(_tool.generate_json_schema() for _tool in self._tools)
+    def list_tools(self, request: Request) -> tuple[dict, ...]:
+        return tuple(
+            _tool.generate_json_schema()
+            for _tool in self._tools
+            if has_required_scope(request, _tool.scopes)
+        )
 
     async def call_tool(
         self,
@@ -67,11 +72,18 @@ class MCPServer(ServerInterface):
             tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
         except StopIteration as e:
             raise ToolNotFoundError(tool_name) from e
+        if not has_required_scope(request, tool.scopes):
+            raise ToolNotFoundError(tool_name)
+
         return await tool.invoke(args, request)
 
-    def list_prompts(self) -> PromptListResult:
+    def list_prompts(self, request: Request) -> PromptListResult:
         return PromptListResult(
-            prompts=tuple(_prompt.to_prompt_protocol_object() for _prompt in self._prompts),
+            prompts=tuple(
+                _prompt.to_prompt_protocol_object()
+                for _prompt in self._prompts
+                if has_required_scope(request, _prompt.scopes)
+            ),
             next_cursor=None,
         )
 
@@ -85,6 +97,9 @@ class MCPServer(ServerInterface):
             _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
         except StopIteration as e:
             raise PromptNotFoundError(prompt_name) from e
+        if not has_required_scope(request, _prompt.scopes):
+            raise PromptNotFoundError(prompt_name)
+
         result = await _prompt.invoke(arguments, request)
         return PromptGetResult(
             description=_prompt.description,

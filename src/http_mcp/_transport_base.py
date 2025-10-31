@@ -87,7 +87,15 @@ class BaseTransport:
                 ),
             )
         else:
-            LOGGER.error("Unsupported protocol version: %s", protocol_version)
+            LOGGER.error(
+                "Unsupported protocol version: %s",
+                protocol_version,
+                extra={
+                    "extra": {
+                        "initialization_request": message.model_dump(mode="json", by_alias=True),
+                    },
+                },
+            )
             status_code = HTTPStatus.BAD_REQUEST
             response = JSONRPCError(
                 jsonrpc="2.0",
@@ -109,7 +117,7 @@ class BaseTransport:
         request: Request,
     ) -> PromptsListResponse | JSONRPCError | PromptsGetResponse:
         if message.method == "prompts/list":
-            result = self._server.list_prompts()
+            result = self._server.list_prompts(request)
             return PromptsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
@@ -154,7 +162,7 @@ class BaseTransport:
         request: Request,
     ) -> JSONRPCMessage | JSONRPCError:
         if message.method == "tools/list":
-            tools = self._server.list_tools()
+            tools = self._server.list_tools(request)
             return ToolsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
