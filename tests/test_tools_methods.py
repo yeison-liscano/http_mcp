@@ -326,6 +326,7 @@ def test_list_tools() -> None:
                                 "required": ["answer"],
                             },
                         },
+                        "type": "object",
                         "oneOf": [
                             {"$ref": "#/$defs/TestTool1Output"},
                             {"$ref": "#/$defs/ErrorMessage"},
