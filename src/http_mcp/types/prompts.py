@@ -25,6 +25,7 @@ class Prompt[TArguments: BaseModel | None]:
         ]
     )
     arguments_type: type[TArguments]
+    scopes: tuple[str, ...] = ()
 
     @property
     def arguments(self) -> tuple[PromptArgument, ...]:

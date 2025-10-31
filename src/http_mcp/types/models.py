@@ -7,6 +7,10 @@ from starlette.requests import Request
 from http_mcp.exceptions import ServerError
 
 
+class NoArguments(BaseModel):
+    pass
+
+
 @dataclass
 class Arguments[TInputs: BaseModel | None]:
     request: Request

@@ -38,11 +38,11 @@ class ServerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list_tools(self) -> tuple[dict, ...]:
+    def list_tools(self, request: Request) -> tuple[dict, ...]:
         raise NotImplementedError
 
     @abstractmethod
-    def list_prompts(self) -> PromptListResult:
+    def list_prompts(self, request: Request) -> PromptListResult:
         raise NotImplementedError
 
     @abstractmethod
