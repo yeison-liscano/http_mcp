@@ -8,7 +8,8 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, ServerError, ToolInvocationError
-from http_mcp.types.models import Arguments, InvocationResult
+from http_mcp.types.models import Arguments, ErrorMessage
+from http_mcp.types.utils import generate_union_schema
 
 
 @dataclass
@@ -27,9 +28,9 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         output: The Pydantic model class that defines the output schema.
             This model is used to generate the tool's output schema.
 
-        return_error_message: If True, wraps the output in an InvocationResult that
-            includes error message when the tool invocation raises a ToolInvocationError.
-            If False (default), returns the raw output model directly.
+        return_error_message: If True, any ToolInvocationError will be caught and the ErrorMessage
+        will be returned instead of returning a JSONRPCError.
+        If False (default), returns the raw output model directly or raises a ToolInvocationError.
 
     """
 
@@ -86,7 +87,7 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     @property
     def output_schema(self) -> dict:
         if self.return_error_message:
-            schema = InvocationResult[TOutput].generate_json_schema(self.output)
+            schema = generate_union_schema(self.output, ErrorMessage)
         else:
             schema = self.output.model_json_schema(by_alias=False)
         schema["title"] = self.name + "Output"
@@ -138,12 +139,12 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         self,
         args: dict,
         request: Request,
-    ) -> TOutput | InvocationResult[TOutput]:
+    ) -> TOutput | ErrorMessage:
         try:
             return await self._invoke(args, request)
         except ToolInvocationError as e:
             if self.return_error_message:
-                return InvocationResult[TOutput](output=None, error_message=e.message)
+                return ErrorMessage(error_message=e.message)
             raise
 
     def generate_json_schema(self) -> dict:

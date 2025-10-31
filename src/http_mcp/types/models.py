@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from http_mcp.exceptions import ServerError
@@ -27,22 +27,9 @@ class Arguments[TInputs: BaseModel | None]:
         return cast("TKey", self.request.state.__getattr__(key))
 
 
-class InvocationResult[TOutput: BaseModel](BaseModel):
-    output: TOutput | None
-    error_message: str | None
+class ErrorMessage(BaseModel):
+    """Returned feedback if the tool invocation was not successful."""
 
-    @classmethod
-    def generate_json_schema(cls, output_class: type[TOutput]) -> dict:
-        schema = cls.model_json_schema(by_alias=False)
-        output_schema = output_class.model_json_schema(by_alias=False)
-
-        schema["$defs"] = {output_class.__name__: output_schema}
-
-        output = [val for val in schema["properties"]["output"]["anyOf"] if "$ref" not in val]
-
-        schema["properties"]["output"]["anyOf"] = [
-            {"$ref": f"#/$defs/{output_class.__name__}"},
-            *output,
-        ]
-
-        return schema
+    error_message: str = Field(
+        description="The error message if the tool invocation was not successful",
+    )
