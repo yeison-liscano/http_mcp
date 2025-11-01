@@ -26,6 +26,7 @@ It is intended to be used with a Starlette or FastAPI application (see
 - [STDIO Transport](#stdio-transport)
 - [Authentication and Authorization](#authentication-and-authorization)
 - [API Reference](#api-reference)
+- [Deployment](#deployment)
 - [License](#license)
 
 ## Features
@@ -839,6 +840,60 @@ or
 ```bash
 uv add http-mcp
 ```
+
+## Deployment
+
+This project uses GitHub Actions to automatically publish to PyPI when the
+version in `pyproject.toml` changes.
+
+### Setting Up PyPI Publishing
+
+You have two options for authentication:
+
+#### Option 1: Trusted Publishing (Recommended)
+
+Trusted publishing uses OpenID Connect (OIDC) to authenticate without needing
+API tokens.
+
+1. Go to [PyPI](https://pypi.org) and log in
+1. Navigate to your project's settings (or create a new project)
+1. Go to the "Publishing" section
+1. Add a new publisher with these settings:
+   - **PyPI Project Name**: `http-mcp`
+   - **Owner**: Your GitHub username/organization
+   - **Repository name**: Your repository name
+   - **Workflow name**: `publish.yml`
+   - **Environment name**: (leave empty)
+
+The workflow in `.github/workflows/publish.yml` is already configured for
+trusted publishing.
+
+#### Option 2: API Token (Alternative)
+
+If you prefer using API tokens:
+
+1. Create a PyPI API token at
+   [https://pypi.org/manage/account/token/](https://pypi.org/manage/account/token/)
+1. Add it as a GitHub secret named `PYPI_API_TOKEN` in your repository settings
+1. Rename `.github/workflows/publish-with-token.yml.example` to
+   `.github/workflows/publish.yml`
+1. Delete the original `publish.yml` (or rename it to `publish.yml.disabled`)
+
+### Publishing a New Version
+
+To publish a new version:
+
+1. Update the `version` field in `pyproject.toml`
+1. Commit and push the changes to the `main` branch
+1. The GitHub Action will automatically:
+   - Detect the version change
+   - Create a git tag (e.g., `v0.7.1`)
+   - Build the package
+   - Publish to PyPI
+
+**Note**: The workflow only triggers when `pyproject.toml` changes on the `main`
+branch. If a tag for the current version already exists, the workflow will skip
+publishing.
 
 ## License
 
