@@ -6,9 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@f095bcc56b7c2baf48f3ac70d6d6782f4f553222
+        uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
 
       - name: Run SCA Scanner
+        # NOFLUID: use always the latest version  
         uses: docker://docker.io/fluidattacks/sca:latest
         with:
           args: sca scan fluidattacks_sca_config.yaml
