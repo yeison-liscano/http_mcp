@@ -18,7 +18,7 @@ jobs:
       name: pypi
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
         with:
           fetch-depth: 0  # Fetch all history for proper tagging
 
@@ -71,5 +71,5 @@ jobs:
 
       - name: Publish to PyPI
         if: steps.check_tag.outputs.exists == 'false'
-        uses: uv publish
+        run: uv publish
 

@@ -18,23 +18,20 @@ sast:
   # Files and directories to scan for security vulnerabilities
   # Using . to scan everything from working directory
   include:
-    - src/                # Scan all files from working directory
+    - src/
+    - tests/
+    - .github/
 
   # Exclude non-relevant paths and dependencies
   exclude:
-    - glob(**/__pycache__/)   # Python cache directories
-    - glob(**/.venv/)         # Virtual environment
-    - glob(**/.git/)          # Git metadata
-    - glob(**/dist/)          # Build artifacts
-    - glob(**/*.pyc)          # Compiled Python files
-    - glob(**/node_modules/)  # JavaScript dependencies (if any)
-    - glob(**/.pytest_cache/) # Pytest cache
-    - glob(**/*.whl)          # Python wheel files
-    - glob(**/*.tar.gz)       # Compressed archives
-    - .venv/
-    - assets/
-    - dist/
-    - glob(*_cache/)
+    - __pycache__    # Python cache directories
+    - .venv/         # Virtual environment
+    - .git/          # Git metadata
+    - dist/          # Build artifacts
+    - glob(**/__pycache__/)   # All pycache directories
+    - glob(**/*.pyc)          # All Python bytecode files
+    - glob(**/*.pyo)          # All optimized bytecode files
+    - glob(**/*_cache/)       # All cache directories
 
   # Recursion limit to prevent long analysis times
   # Recommended value: 1000
