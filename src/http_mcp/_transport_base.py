@@ -37,7 +37,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class BaseTransport:
-    supported_versions = ("2025-06-18",)
+    supported_versions = ("2025-03-26", "2025-06-18", "2025-11-25")
     supported_methods = ("initialize", "tools/list", "tools/call", "prompts/list", "prompts/get")
 
     def __init__(self, server: ServerInterface) -> None:
