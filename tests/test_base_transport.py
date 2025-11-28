@@ -73,7 +73,10 @@ def test_initialize_unsupported_version() -> None:
         "error": {
             "code": ProtocolErrorCode.INVALID_PARAMS.value,
             "message": "Unsupported protocol version",
-            "data": {"supported": ["2025-06-18"], "requested": "2024-11-05"},
+            "data": {
+                "supported": ["2025-03-26", "2025-06-18", "2025-11-25"],
+                "requested": "2024-11-05",
+            },
         },
     }
 
