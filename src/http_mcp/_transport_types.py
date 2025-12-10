@@ -1,19 +1,13 @@
-from enum import IntEnum
 from http import HTTPStatus
 
 from pydantic import BaseModel
 
-
-class ProtocolErrorCode(IntEnum):
-    INVALID_PARAMS = -32602
-    INTERNAL_ERROR = -32603
-    METHOD_NOT_FOUND = -32601
-    RESOURCE_NOT_FOUND = -32002
+from http_mcp._json_rcp_types.errors import ErrorCode
 
 
 class ErrorResponseInfo(BaseModel):
     message_id: int | str | None = None
-    protocol_code: ProtocolErrorCode
+    protocol_code: ErrorCode
     http_status_code: HTTPStatus
     message: str
     headers: dict[str, str] | None = None

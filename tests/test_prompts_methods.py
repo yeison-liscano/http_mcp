@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.prompts import PromptMessage
 from http_mcp.server import MCPServer
@@ -278,8 +278,8 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
-            "message": f"Protocol error: Error validating arguments for prompt {prompt.name}: "
+            "code": ErrorCode.INVALID_PARAMS.value,
+            "message": f"Error validating arguments for prompt {prompt.name}: "
             '[{"type":"missing","loc":["argument_1"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
             'life?"},"url":"https://errors.pydantic.dev/2.12/v/missing"},{"type":"missing","loc":'
@@ -322,7 +322,7 @@ def test_server_call_prompt_with_error(prompt: Prompt) -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "description": f"Server error: Error getting prompt {prompt.name}: Unknown error",
+            "description": f"Error getting prompt {prompt.name}: Unknown error",
             "messages": [],
         },
     }
@@ -353,8 +353,8 @@ def test_prompt_not_found() -> None:
     assert response_json == {
         "jsonrpc": "2.0",
         "id": 1,
-        "result": {
-            "description": "Server error: Prompt not_found not found",
-            "messages": [],
+        "error": {
+            "code": ErrorCode.RESOURCE_NOT_FOUND.value,
+            "message": "Prompt not_found not found",
         },
     }

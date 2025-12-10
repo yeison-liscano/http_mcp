@@ -7,6 +7,7 @@ from tests.app.main import BasicAuthBackend, mcp_server, mount_mcp_server
 from tests.app.prompts import PROMPTS
 from tests.app.tools import TOOLS
 
+HEADER_AUTHORIZATION = {"Authorization": "Bearer TEST_TOKEN"}
 
 def server_with_public_tools() -> None:
     server_with_public_tools = MCPServer(
@@ -38,7 +39,7 @@ def test_http_list_only_public_tools() -> None:
 
 def test_public_and_private_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private",)))
-    client = TestClient(app)
+    client = TestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
     response_json = response.json()
     assert response_json == {
@@ -57,7 +58,7 @@ def test_public_and_private_tools() -> None:
 
 def test_private_and_superuser_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private", "superuser")))
-    client = TestClient(app)
+    client = TestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
     response_json = response.json()
     assert response_json == {
@@ -72,7 +73,7 @@ def test_private_and_superuser_tools() -> None:
 
 def test_public_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend())
-    client = TestClient(app)
+    client = TestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
     assert response_json == {
@@ -90,7 +91,7 @@ def test_public_prompts() -> None:
 
 def test_private_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private",)))
-    client = TestClient(app)
+    client = TestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
     assert response_json == {
@@ -108,7 +109,7 @@ def test_private_prompts() -> None:
 
 def test_private_and_superuser_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private", "superuser")))
-    client = TestClient(app)
+    client = TestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
     assert response_json == {

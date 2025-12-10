@@ -3,7 +3,7 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp.exceptions import ToolInvocationError
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Tool
@@ -490,8 +490,8 @@ def test_server_call_tool_with_invalid_arguments() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
-            "message": "Protocol error: Error validating arguments for tool tool_1: "
+            "code": ErrorCode.INVALID_PARAMS.value,
+            "message": "Error validating arguments for tool tool_1: "
             '[{"type":"missing","loc":["question"],"msg":"Field '
             'required","input":{"invalid_field":"What is the meaning of '
             'life?"},"url":"https://errors.pydantic.dev/2.12/v/missing"}]',
@@ -542,7 +542,7 @@ def test_server_call_tool_with_error() -> None:
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Server error: Error calling tool {tool.__name__}: Unknown error",
+                        "text": f"Error calling tool {tool.__name__}: Unknown error",
                     },
                 ],
                 "isError": True,
@@ -572,13 +572,8 @@ def test_tool_not_found() -> None:
     assert response_json == {
         "jsonrpc": "2.0",
         "id": 1,
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Server error: Tool not_found not found",
-                },
-            ],
-            "isError": True,
+        "error": {
+            "code": ErrorCode.RESOURCE_NOT_FOUND.value,
+            "message": "Tool not_found not found",
         },
     }

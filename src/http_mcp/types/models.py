@@ -4,6 +4,7 @@ from typing import cast
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
+from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp.exceptions import ServerError
 
 
@@ -26,7 +27,7 @@ class Arguments[TInputs: BaseModel | None]:
                 f"Key {key} not found in request state, make sure to add it to the"
                 " request state in the lifespan of the application."
             )
-            raise ServerError(message)
+            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=message))
 
         return cast("TKey", self.request.state.__getattr__(key))
 

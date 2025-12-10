@@ -10,3 +10,6 @@ class Context:
 
     def add_called_tool(self, tool_name: str) -> None:
         self.called_tools.append(tool_name)
+
+    def clear(self) -> None:
+        self.called_tools = []
