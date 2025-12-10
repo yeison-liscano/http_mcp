@@ -33,8 +33,12 @@ class JSONRPCResponse(JSONRPCMessage):
     @field_validator("error")
     @classmethod
     def validate_error(cls, value: Error | None, info: ValidationInfo) -> Error | None:
-        if info.data.get("result") is not None:
+        result = info.data.get("result")
+        if value is not None and result is not None:
             message = "result and error cannot be set at the same time"
+            raise ValueError(message)
+        if value is None and result is None:
+            message = "either result or error must be set"
             raise ValueError(message)
         return value
 

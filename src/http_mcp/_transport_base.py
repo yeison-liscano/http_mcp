@@ -5,8 +5,13 @@ from http import HTTPStatus
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from http_mcp._transport_types import ProtocolErrorCode
-from http_mcp.exceptions import ProtocolError, ServerError
+from http_mcp._json_rcp_types.errors import ErrorCode
+from http_mcp.exceptions import (
+    PromptInvocationError,
+    ProtocolError,
+    ServerError,
+    ToolNotFoundError,
+)
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.messages import (
     Error,
@@ -67,7 +72,7 @@ class BaseTransport:
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    code=ErrorCode.INVALID_PARAMS.value,
                     message=json.dumps(e.errors()),
                 ),
             ), HTTPStatus.BAD_REQUEST
@@ -101,7 +106,7 @@ class BaseTransport:
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    code=ErrorCode.INVALID_PARAMS.value,
                     message="Unsupported protocol version",
                     data={
                         "supported": list(self.supported_versions),
@@ -131,7 +136,7 @@ class BaseTransport:
                 validated_message.params.arguments,
                 request,
             )
-        except ServerError as e:
+        except PromptInvocationError as e:
             return PromptsGetResponse(
                 jsonrpc="2.0",
                 id=message.id,
@@ -140,12 +145,12 @@ class BaseTransport:
                     messages=(),
                 ),
             )
-        except ProtocolError as e:
+        except (ProtocolError, ServerError) as e:
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    code=e.error.code.value,
                     message=e.message,
                 ),
             )
@@ -186,7 +191,7 @@ class BaseTransport:
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    code=ErrorCode.INVALID_PARAMS.value,
                     message=json.dumps(e.errors()),
                 ),
             )
@@ -215,12 +220,12 @@ class BaseTransport:
                     structured_content=returned_value.model_dump(mode="json", by_alias=True),
                 ),
             )
-        except ProtocolError as e:
+        except (ProtocolError, ToolNotFoundError) as e:
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
-                    code=ProtocolErrorCode.INVALID_PARAMS.value,
+                    code=e.error.code.value,
                     message=e.message,
                 ),
             )

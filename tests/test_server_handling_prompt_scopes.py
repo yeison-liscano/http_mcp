@@ -2,6 +2,7 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
+from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp.mcp_types.content import TextContent
 from http_mcp.mcp_types.prompts import PromptMessage
 from http_mcp.server import MCPServer
@@ -73,6 +74,7 @@ def test_call_prompt_with_scope() -> None:
             },
         }
 
+
 def test_call_prompt_without_required_scope() -> None:
     def prompt_with_scope() -> tuple[PromptMessage, ...]:
         """Private prompt.
@@ -117,8 +119,8 @@ def test_call_prompt_without_required_scope() -> None:
         assert response_json == {
             "jsonrpc": "2.0",
             "id": 1,
-            "result": {
-                "description": "Server error: Prompt prompt_with_scope not found",
-                "messages": [],
+            "error": {
+                "code": ErrorCode.RESOURCE_NOT_FOUND.value,
+                "message": "Prompt prompt_with_scope not found",
             },
         }

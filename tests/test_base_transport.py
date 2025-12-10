@@ -2,7 +2,7 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp._json_rcp_types.errors import ErrorCode
 from tests.models import DUMMY_SERVER
 
 
@@ -26,7 +26,7 @@ def test_initialize_bad_request() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": '[{"type": "missing", "loc": ["params", "clientInfo"], '
             '"msg": "Field required", "input": {"protocolVersion": '
             '"2025-06-18"}, "url": '
@@ -71,7 +71,7 @@ def test_initialize_unsupported_version() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Unsupported protocol version",
             "data": {
                 "supported": ["2025-03-26", "2025-06-18", "2025-11-25"],
@@ -94,7 +94,7 @@ def test_method_not_found() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.METHOD_NOT_FOUND.value,
+            "code": ErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
         },
     }
@@ -117,7 +117,7 @@ def test_invalid_tool_execution_request() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": '[{"type": "model_type", "loc": ["params"], "msg": "Input should be a '
             'valid dictionary or instance of ToolsCallRequestParams", "input": '
             'null, "ctx": {"class_name": "ToolsCallRequestParams"}, "url": '

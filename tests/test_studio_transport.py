@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp._json_rcp_types.errors import ErrorCode
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_studio_transport_invalid_request() -> None:
     assert json.loads(stdout_data) == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": '[{"type": "missing", "loc": ["method"], "msg": "Field required", '
             '"input": {"jsonrpc": "2.0", "id": 1}, "url": '
             '"https://errors.pydantic.dev/2.12/v/missing"}]',
@@ -103,7 +103,7 @@ async def test_studio_transport_invalid_body() -> None:
     assert json.loads(stdout_data) == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Parse error",
         },
     }

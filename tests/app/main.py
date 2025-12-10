@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import TypedDict
 
 import uvicorn
@@ -11,6 +11,7 @@ from starlette.authentication import (
     AuthenticationBackend,
     BaseUser,
     SimpleUser,
+    UnauthenticatedUser,
 )
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -25,13 +26,20 @@ mcp_server = MCPServer(tools=TOOLS, prompts=PROMPTS, name="test", version="1.0.0
 
 
 class BasicAuthBackend(AuthenticationBackend):
-    def __init__(self, granted_scopes: tuple[str, ...] = ("authenticated",)) -> None:
-        self.granted_scopes = granted_scopes
+    """Basic authentication backend that mocks the authentication.
 
+    It allows access to the server with the granted scopes if the authorization header is set to
+    "Bearer TEST_TOKEN" and returns an unauthenticated user otherwise.
+    """
+
+    def __init__(self, granted_scopes: Sequence[str] = ("authenticated",)) -> None:
+        self.granted_scopes = granted_scopes
         super().__init__()
 
-    async def authenticate(self, _conn: HTTPConnection) -> tuple[AuthCredentials, BaseUser] | None:
-        return AuthCredentials(self.granted_scopes), SimpleUser("test_user")
+    async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, BaseUser]:
+        if conn.headers.get("Authorization") == "Bearer TEST_TOKEN":
+            return AuthCredentials(self.granted_scopes), SimpleUser("unittesting@mcp.com")
+        return AuthCredentials(), UnauthenticatedUser()
 
 
 class State(TypedDict):

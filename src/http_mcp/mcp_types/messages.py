@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from http_mcp.mcp_types.capabilities import ServerCapabilities  # noqa: TC001
 
@@ -23,25 +23,6 @@ class JSONRPCRequest(JSONRPCMessage):
         "notifications/unsubscribe",
         "notifications/initialized",
     ]
-    params: dict[str, Any] | BaseModel | None = None
-
-
-class JSONRPCResponse(JSONRPCMessage):
-    result: BaseModel | None = None
-    error: Error | None = None
-
-    @field_validator("error")
-    @classmethod
-    def validate_error(cls, v: Error | None) -> Error | None:
-        if cls.result is not None:
-            message = "result and error cannot be set at the same time"
-            raise ValueError(message)
-        return v
-
-
-class JSONRPCNotification(BaseModel):
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/initialized", "notifications/unsubscribe"]
     params: dict[str, Any] | BaseModel | None = None
 
 

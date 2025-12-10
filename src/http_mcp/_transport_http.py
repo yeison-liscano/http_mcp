@@ -6,8 +6,9 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
+from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp._transport_base import BaseTransport
-from http_mcp._transport_types import ErrorResponseInfo, ProtocolErrorCode
+from http_mcp._transport_types import ErrorResponseInfo
 from http_mcp.mcp_types.messages import (
     Error,
     JSONRPCError,
@@ -34,7 +35,7 @@ class HTTPTransport(BaseTransport):
                 await self._send_error_response(
                     send,
                     ErrorResponseInfo(
-                        protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                        protocol_code=ErrorCode.INVALID_PARAMS,
                         http_status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                         message="Unsupported Media Type: Content-Type must be application/json",
                         headers={"Content-Type": "application/json"},
@@ -52,7 +53,7 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                    protocol_code=ErrorCode.INVALID_PARAMS,
                     http_status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     message="Request body too large.",
                 ),
@@ -65,7 +66,7 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    protocol_code=ProtocolErrorCode.INVALID_PARAMS,
+                    protocol_code=ErrorCode.INVALID_PARAMS,
                     http_status_code=HTTPStatus.BAD_REQUEST,
                     message="Parse error: Invalid body",
                 ),
@@ -108,9 +109,9 @@ class HTTPTransport(BaseTransport):
                 ErrorResponseInfo(
                     message_id=raw_message.get("id"),
                     protocol_code=(
-                        ProtocolErrorCode.METHOD_NOT_FOUND
+                        ErrorCode.METHOD_NOT_FOUND
                         if is_invalid_method
-                        else ProtocolErrorCode.INVALID_PARAMS
+                        else ErrorCode.INVALID_PARAMS
                     ),
                     http_status_code=HTTPStatus.BAD_REQUEST,
                     message="Error validating message request",

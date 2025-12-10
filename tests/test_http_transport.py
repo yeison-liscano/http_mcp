@@ -2,7 +2,7 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from http_mcp._transport_types import ProtocolErrorCode
+from http_mcp._json_rcp_types.errors import ErrorCode
 from tests.models import DUMMY_SERVER
 
 
@@ -18,7 +18,7 @@ def test_unsupported_content_type() -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Unsupported Media Type: Content-Type must be application/json",
         },
     }
@@ -49,7 +49,7 @@ def test_request_body_too_large() -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Request body too large.",
         },
     }
@@ -68,7 +68,7 @@ def test_parse_error() -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Parse error: Invalid body",
         },
     }
@@ -100,7 +100,7 @@ def test_invalid_message() -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ProtocolErrorCode.METHOD_NOT_FOUND.value,
+            "code": ErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
         },
     }
