@@ -425,8 +425,8 @@ support lifespan state access, similar to tools.
 ```python
 from pydantic import BaseModel, Field
 
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.prompts import PromptMessage
 from http_mcp.types import Arguments, Prompt
 
 
@@ -486,9 +486,7 @@ app.mount(
 You can define prompts that don't require any input arguments:
 
 ```python
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
-from http_mcp.types import Prompt
+from http_mcp.types import Prompt, PromptMessage, TextContent
 
 def help_prompt() -> tuple[PromptMessage, ...]:
     """Use this prompt to get general help."""
@@ -512,9 +510,7 @@ PROMPTS = (
 Alternatively, you can use the `NoArguments` class:
 
 ```python
-from http_mcp.types import Arguments, NoArguments, Prompt
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp.types import Arguments, NoArguments, Prompt, PromptMessage, TextContent
 
 def help_prompt_with_context(args: Arguments[NoArguments]) -> tuple[PromptMessage, ...]:
     """Use this prompt to get help with access to context."""
@@ -539,9 +535,7 @@ PROMPTS = (
 
 ```python
 from pydantic import BaseModel, Field
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
-from http_mcp.types import Arguments, Prompt
+from http_mcp.types import Arguments, Prompt, PromptMessage, TextContent
 from app.context import Context
 
 class GetAdvice(BaseModel):
@@ -582,9 +576,7 @@ PROMPTS_WITH_CONTEXT = (
 You can restrict prompt access based on authentication scopes:
 
 ```python
-from http_mcp.types import Arguments, NoArguments, Prompt
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp.types import Arguments, NoArguments, Prompt, PromptMessage, TextContent
 
 def private_prompt(args: Arguments[NoArguments]) -> tuple[PromptMessage, ...]:
     """Private prompt that is only accessible to authenticated users."""

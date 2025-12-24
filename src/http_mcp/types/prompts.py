@@ -7,8 +7,8 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
+from http_mcp._mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 from http_mcp.exceptions import ArgumentsError, PromptInvocationError, ServerError
-from http_mcp.mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 from http_mcp.types import Arguments
 
 

@@ -6,14 +6,13 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from http_mcp._json_rcp_types.errors import ErrorCode
-from http_mcp._transport_base import BaseTransport
-from http_mcp._transport_types import ErrorResponseInfo
-from http_mcp.mcp_types.messages import (
-    Error,
+from http_mcp._json_rcp_types.errors import Error, ErrorCode
+from http_mcp._json_rcp_types.messages import (
     JSONRPCError,
     JSONRPCRequest,
 )
+from http_mcp._transport_base import BaseTransport
+from http_mcp._transport_types import ErrorResponseInfo
 from http_mcp.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
@@ -175,8 +174,8 @@ class HTTPTransport(BaseTransport):
             jsonrpc="2.0",
             id=error_info.message_id,
             error=Error(
-                code=error_info.protocol_code.value,
-                message=error_info.message,
+                code=error_info.protocol_code,
+                description=error_info.message,
             ),
         )
 

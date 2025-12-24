@@ -2,8 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp._mcp_types.content import TextContent
 
 
 class PromptGetRequestParams(BaseModel):
@@ -40,7 +40,9 @@ class ProtocolPrompt(BaseModel):
 class PromptListResult(BaseModel):
     prompts: tuple[ProtocolPrompt, ...]
     next_cursor: str | None = Field(
-        serialization_alias="nextCursor", alias_priority=1, default=None,
+        serialization_alias="nextCursor",
+        alias_priority=1,
+        default=None,
     )
 
 
