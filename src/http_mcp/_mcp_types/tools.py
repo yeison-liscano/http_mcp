@@ -2,14 +2,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp._mcp_types.content import TextContent
 
 
 class ToolsListResult(BaseModel):
     tools: tuple[dict, ...]
     next_cursor: str | None = Field(
-        serialization_alias="nextCursor", default=None, alias_priority=1,
+        serialization_alias="nextCursor",
+        default=None,
+        alias_priority=1,
     )
 
 
@@ -21,7 +23,9 @@ class ToolsCallResult(BaseModel):
     content: tuple[TextContent, ...]
     is_error: bool = Field(serialization_alias="isError", alias_priority=1)
     structured_content: dict[str, Any] | None = Field(
-        serialization_alias="structuredContent", default=None, alias_priority=1,
+        serialization_alias="structuredContent",
+        default=None,
+        alias_priority=1,
     )
 
 

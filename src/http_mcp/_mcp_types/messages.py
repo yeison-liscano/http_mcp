@@ -4,36 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from http_mcp.mcp_types.capabilities import ServerCapabilities  # noqa: TC001
-
-
-class JSONRPCMessage(BaseModel):
-    jsonrpc: Literal["2.0"]
-    id: int | str | None = None  # Errors and notifications has no id
-
-
-class JSONRPCRequest(JSONRPCMessage):
-    method: Literal[
-        "prompts/list",
-        "prompts/get",
-        "tools/list",
-        "tools/call",
-        "initialize",
-        "notifications/subscribe",
-        "notifications/unsubscribe",
-        "notifications/initialized",
-    ]
-    params: dict[str, Any] | BaseModel | None = None
-
-
-class Error(BaseModel):
-    code: int
-    message: str
-    data: dict[str, Any] | None = None
-
-
-class JSONRPCError(JSONRPCMessage):
-    error: Error
+from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
+from http_mcp._mcp_types.capabilities import ServerCapabilities  # noqa: TC001
 
 
 class InitializationRequest(JSONRPCRequest):

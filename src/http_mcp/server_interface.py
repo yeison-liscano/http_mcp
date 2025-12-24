@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from http_mcp.mcp_types.capabilities import ServerCapabilities
-from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
+from http_mcp._mcp_types.capabilities import ServerCapabilities
+from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
 
 
 class ServerInterface(ABC):

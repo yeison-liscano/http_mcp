@@ -3,11 +3,11 @@ from starlette.authentication import has_required_scope
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
+from http_mcp._mcp_types.capabilities import Capability, ServerCapabilities
+from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
 from http_mcp._stdio_transport import StdioTransport
 from http_mcp._transport_http import HTTPTransport
 from http_mcp.exceptions import PromptNotFoundError, ToolNotFoundError
-from http_mcp.mcp_types.capabilities import Capability, ServerCapabilities
-from http_mcp.mcp_types.prompts import PromptGetResult, PromptListResult
 from http_mcp.server_interface import ServerInterface
 from http_mcp.types import Prompt, Tool
 

@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
 from http_mcp._json_rcp_types.errors import ErrorCode
-from http_mcp.mcp_types.content import TextContent
-from http_mcp.mcp_types.prompts import PromptMessage
+from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.prompts import PromptMessage
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Prompt
 

@@ -7,14 +7,13 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from http_mcp._json_rcp_types.errors import ErrorCode
-from http_mcp._transport_base import BaseTransport
-from http_mcp.mcp_types.messages import (
-    Error,
+from http_mcp._json_rcp_types.errors import Error, ErrorCode
+from http_mcp._json_rcp_types.messages import (
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
 )
+from http_mcp._transport_base import BaseTransport
 from http_mcp.server_interface import ServerInterface
 
 if TYPE_CHECKING:
@@ -63,8 +62,8 @@ class StdioTransport(BaseTransport):
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
                     error=Error(
-                        code=ErrorCode.INVALID_PARAMS.value,
-                        message=json.dumps(e.errors()),
+                        code=ErrorCode.INVALID_PARAMS,
+                        description=json.dumps(e.errors()),
                     ),
                 )
                 await self._write_response(
@@ -75,8 +74,8 @@ class StdioTransport(BaseTransport):
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
                     error=Error(
-                        code=ErrorCode.INVALID_PARAMS.value,
-                        message="Parse error",
+                        code=ErrorCode.INVALID_PARAMS,
+                        description="Parse error",
                     ),
                 )
                 await self._write_response(
