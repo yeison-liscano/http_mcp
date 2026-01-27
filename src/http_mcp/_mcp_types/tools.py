@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
 from http_mcp._mcp_types.content import TextContent
@@ -44,7 +44,19 @@ class ToolsCallRequest(JSONRPCRequest):
 
 
 class ToolsListRequestParams(BaseModel):
-    cursor: str | None = None
+    cursor: int | None = None
+
+    @field_validator("cursor", mode="before")
+    @classmethod
+    def validate_cursor(cls, v: object) -> int | None:
+        if v is None:
+            return None
+        if isinstance(v, int | str | bytes):
+            try:
+                return int(v)
+            except (ValueError, TypeError):
+                return None
+        return None
 
 
 class ToolsListRequest(JSONRPCRequest):

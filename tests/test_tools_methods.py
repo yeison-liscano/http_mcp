@@ -117,7 +117,10 @@ def test_list_tools() -> None:
     )
     app = mount_mcp_server(server)
     client = TestClient(app)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
     assert response_json == {
@@ -130,28 +133,28 @@ def test_list_tools() -> None:
                     "title": "Tool 1",
                     "description": "Return a simple answer.",
                     "inputSchema": {
-                        "title": "tool_1Arguments",
-                        "type": "object",
                         "properties": {
                             "question": {
+                                "description": "The question to answer",
                                 "title": "Question",
                                 "type": "string",
-                                "description": "The question to answer",
                             },
                         },
                         "required": ["question"],
+                        "title": "tool_1Arguments",
+                        "type": "object",
                     },
                     "outputSchema": {
-                        "title": "tool_1Output",
-                        "type": "object",
                         "properties": {
                             "answer": {
+                                "description": "The answer to the question",
                                 "title": "Answer",
                                 "type": "string",
-                                "description": "The answer to the question",
                             },
                         },
                         "required": ["answer"],
+                        "title": "tool_1Output",
+                        "type": "object",
                     },
                     "annotations": {
                         "title": "Tool 1",
@@ -167,33 +170,33 @@ def test_list_tools() -> None:
                     "title": "Tool 2",
                     "description": "Return a simple user information.",
                     "inputSchema": {
-                        "title": "tool_2Arguments",
-                        "type": "object",
                         "properties": {
                             "user_id": {
+                                "description": "The user ID to get information about",
                                 "title": "User Id",
                                 "type": "string",
-                                "description": "The user ID to get information about",
                             },
                         },
                         "required": ["user_id"],
+                        "title": "tool_2Arguments",
+                        "type": "object",
                     },
                     "outputSchema": {
-                        "title": "tool_2Output",
-                        "type": "object",
                         "properties": {
                             "user_id": {
+                                "description": "The user ID",
                                 "title": "User Id",
                                 "type": "string",
-                                "description": "The user ID",
                             },
                             "email": {
+                                "description": "The email address of the user",
                                 "title": "Email",
                                 "type": "string",
-                                "description": "The email address of the user",
                             },
                         },
                         "required": ["user_id", "email"],
+                        "title": "tool_2Output",
+                        "type": "object",
                     },
                     "annotations": {
                         "title": "Tool 2",
@@ -205,77 +208,8 @@ def test_list_tools() -> None:
                     "meta": None,
                 },
                 {
-                    "annotations": {
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
-                        "readOnlyHint": False,
-                        "title": "Tool Without Arguments",
-                    },
-                    "description": "Return a simple message.",
-                    "inputSchema": {
-                        "properties": {},
-                        "title": "tool_without_argumentsArguments",
-                        "type": "object",
-                    },
-                    "meta": None,
-                    "name": "tool_without_arguments",
-                    "outputSchema": {
-                        "properties": {
-                            "message": {
-                                "description": "The message to return",
-                                "title": "Message",
-                                "type": "string",
-                            },
-                        },
-                        "required": [
-                            "message",
-                        ],
-                        "title": "tool_without_argumentsOutput",
-                        "type": "object",
-                    },
-                    "title": "Tool Without Arguments",
-                },
-                {
-                    "annotations": {
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
-                        "readOnlyHint": False,
-                        "title": "Tool Without Arguments Async",
-                    },
-                    "description": "Return a simple message.",
-                    "inputSchema": {
-                        "properties": {},
-                        "title": "tool_without_arguments_asyncArguments",
-                        "type": "object",
-                    },
-                    "meta": None,
-                    "name": "tool_without_arguments_async",
-                    "outputSchema": {
-                        "properties": {
-                            "message": {
-                                "description": "The message to return",
-                                "title": "Message",
-                                "type": "string",
-                            },
-                        },
-                        "required": [
-                            "message",
-                        ],
-                        "title": "tool_without_arguments_asyncOutput",
-                        "type": "object",
-                    },
-                    "title": "Tool Without Arguments Async",
-                },
-                {
-                    "annotations": {
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
-                        "readOnlyHint": False,
-                        "title": "Tool That Raises Invocation Result",
-                    },
+                    "name": "tool_that_raises_invocation_result",
+                    "title": "Tool That Raises Invocation Result",
                     "description": "Return a simple answer.",
                     "inputSchema": {
                         "properties": {
@@ -285,16 +219,24 @@ def test_list_tools() -> None:
                                 "type": "string",
                             },
                         },
-                        "required": [
-                            "question",
-                        ],
+                        "required": ["question"],
                         "title": "tool_that_raises_invocation_resultArguments",
                         "type": "object",
                     },
-                    "meta": None,
-                    "name": "tool_that_raises_invocation_result",
                     "outputSchema": {
                         "$defs": {
+                            "TestTool1Output": {
+                                "properties": {
+                                    "answer": {
+                                        "description": "The answer to the question",
+                                        "title": "Answer",
+                                        "type": "string",
+                                    },
+                                },
+                                "required": ["answer"],
+                                "title": "TestTool1Output",
+                                "type": "object",
+                            },
                             "ErrorMessage": {
                                 "description": (
                                     "Returned feedback if the tool invocation was not successful."
@@ -302,8 +244,8 @@ def test_list_tools() -> None:
                                 "properties": {
                                     "error_message": {
                                         "description": (
-                                            "The error message if the tool invocation was not "
-                                            "successful"
+                                            "The error message if the tool invocation was not"
+                                            " successful"
                                         ),
                                         "title": "Error Message",
                                         "type": "string",
@@ -313,18 +255,6 @@ def test_list_tools() -> None:
                                 "title": "ErrorMessage",
                                 "type": "object",
                             },
-                            "TestTool1Output": {
-                                "title": "TestTool1Output",
-                                "type": "object",
-                                "properties": {
-                                    "answer": {
-                                        "title": "Answer",
-                                        "type": "string",
-                                        "description": "The answer to the question",
-                                    },
-                                },
-                                "required": ["answer"],
-                            },
                         },
                         "type": "object",
                         "oneOf": [
@@ -333,10 +263,76 @@ def test_list_tools() -> None:
                         ],
                         "title": "tool_that_raises_invocation_resultOutput",
                     },
-                    "title": "Tool That Raises Invocation Result",
+                    "annotations": {
+                        "title": "Tool That Raises Invocation Result",
+                        "readOnlyHint": False,
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                    },
+                    "meta": None,
+                },
+                {
+                    "name": "tool_without_arguments",
+                    "title": "Tool Without Arguments",
+                    "description": "Return a simple message.",
+                    "inputSchema": {
+                        "properties": {},
+                        "title": "tool_without_argumentsArguments",
+                        "type": "object",
+                    },
+                    "outputSchema": {
+                        "properties": {
+                            "message": {
+                                "description": "The message to return",
+                                "title": "Message",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["message"],
+                        "title": "tool_without_argumentsOutput",
+                        "type": "object",
+                    },
+                    "annotations": {
+                        "title": "Tool Without Arguments",
+                        "readOnlyHint": False,
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                    },
+                    "meta": None,
+                },
+                {
+                    "name": "tool_without_arguments_async",
+                    "title": "Tool Without Arguments Async",
+                    "description": "Return a simple message.",
+                    "inputSchema": {
+                        "properties": {},
+                        "title": "tool_without_arguments_asyncArguments",
+                        "type": "object",
+                    },
+                    "outputSchema": {
+                        "properties": {
+                            "message": {
+                                "description": "The message to return",
+                                "title": "Message",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["message"],
+                        "title": "tool_without_arguments_asyncOutput",
+                        "type": "object",
+                    },
+                    "annotations": {
+                        "title": "Tool Without Arguments Async",
+                        "readOnlyHint": False,
+                        "destructiveHint": False,
+                        "idempotentHint": True,
+                        "openWorldHint": True,
+                    },
+                    "meta": None,
                 },
             ],
-            "nextCursor": "",
         },
     }
 

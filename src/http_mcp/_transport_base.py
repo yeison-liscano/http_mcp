@@ -28,6 +28,7 @@ from http_mcp._mcp_types.tools import (
     ToolsCallRequest,
     ToolsCallResponse,
     ToolsCallResult,
+    ToolsListRequest,
     ToolsListResponse,
     ToolsListResult,
 )
@@ -40,6 +41,8 @@ from http_mcp.exceptions import (
 from http_mcp.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
+
+TOOLS_CHUNK_SIZE = 100
 
 
 class BaseTransport:
@@ -168,13 +171,38 @@ class BaseTransport:
         request: Request,
     ) -> JSONRPCMessage | JSONRPCError:
         if message.method == "tools/list":
-            tools = self._server.list_tools(request)
+            try:
+                validated_message = ToolsListRequest.model_validate(message.model_dump())
+            except ValidationError as e:
+                return JSONRPCError(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    error=Error(
+                        code=ErrorCode.INVALID_PARAMS,
+                        description=json.dumps(e.errors()),
+                    ),
+                )
+
+            all_tools = self._server.list_tools(request)
+            sorted_tools = sorted(all_tools, key=lambda x: x["name"])
+            total_tools = len(sorted_tools)
+
+            cursor = validated_message.params.cursor or 0
+            start_index = max(0, min(cursor, total_tools))
+            end_index = min(start_index + TOOLS_CHUNK_SIZE, total_tools)
+            tools = sorted_tools[start_index:end_index]
+
+            # Calculate next cursor if there are more items
+            next_cursor: str | None = None
+            if end_index < total_tools:
+                next_cursor = str(end_index)
+
             return ToolsListResponse(
                 jsonrpc="2.0",
                 id=message.id,
                 result=ToolsListResult(
-                    tools=tools,
-                    next_cursor="",
+                    tools=tuple(tools),
+                    next_cursor=next_cursor,
                 ),
             )
 
