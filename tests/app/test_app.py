@@ -9,6 +9,7 @@ from tests.app.tools import TOOLS
 
 HEADER_AUTHORIZATION = {"Authorization": "Bearer TEST_TOKEN"}
 
+
 def server_with_public_tools() -> None:
     server_with_public_tools = MCPServer(
         tools=tuple(tool for tool in TOOLS if not tool.scopes),
@@ -17,22 +18,36 @@ def server_with_public_tools() -> None:
     )
     app = mount_mcp_server(server_with_public_tools)
     client = TestClient(app)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "id": 1,
+            "params": {},
+        },
+    )
     assert response.status_code == HTTPStatus.OK
 
 
 def test_http_list_only_public_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend())
     client = TestClient(app)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
     assert response_json == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "tools": [tool.generate_json_schema() for tool in TOOLS if not tool.scopes],
-            "nextCursor": "",
+            "tools": [
+                tool.generate_json_schema() # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
+                if not tool.scopes # type: ignore[attr-defined]
+            ],
         },
     }
 
@@ -40,18 +55,20 @@ def test_http_list_only_public_tools() -> None:
 def test_public_and_private_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private",)))
     client = TestClient(app, headers=HEADER_AUTHORIZATION)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
     response_json = response.json()
     assert response_json == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
             "tools": [
-                tool.generate_json_schema()
-                for tool in TOOLS
-                if (not tool.scopes or tool.scopes == ("private",))
+                tool.generate_json_schema() # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
+                if (not tool.scopes or tool.scopes == ("private",)) # type: ignore[attr-defined]
             ],
-            "nextCursor": "",
         },
     }
 
@@ -59,14 +76,19 @@ def test_public_and_private_tools() -> None:
 def test_private_and_superuser_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private", "superuser")))
     client = TestClient(app, headers=HEADER_AUTHORIZATION)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
     response_json = response.json()
     assert response_json == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "tools": [tool.generate_json_schema() for tool in TOOLS],
-            "nextCursor": "",
+            "tools": [
+                tool.generate_json_schema() # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
+            ],
         },
     }
 

@@ -26,7 +26,10 @@ TOOLS_SIMPLE_SERVER = (
 def test_server_list_tools() -> None:
     server = MCPServer(tools=TOOLS_SIMPLE_SERVER, name="test", version="1.0.0")
     client = TestClient(server.app)
-    response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list", "id": 1})
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
     assert response_json == {
@@ -60,7 +63,6 @@ def test_server_list_tools() -> None:
                     "meta": None,
                 },
             ],
-            "nextCursor": "",
         },
     }
 

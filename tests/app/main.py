@@ -93,6 +93,19 @@ def run_stdio() -> None:
     }
     asyncio.run(mcp_server.serve_stdio(request_headers), debug=True)
 
+app = Starlette(
+        lifespan=lifespan,
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=BasicAuthBackend(granted_scopes=("private",)),
+            ),
+        ],
+    )
+app.mount(
+    "/mcp",
+    mcp_server.app,
+)
 
 if __name__ == "__main__":
     run_http()

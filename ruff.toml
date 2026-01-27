@@ -2,7 +2,7 @@ cache-dir = ".ruff_cache"
 line-length = 100
 indent-width = 4
 target-version = "py313"
-include = ["server/**/*.py", "tests/**/*.py"]
+include = ["src/**/*.py", "tests/**/*.py"]
 
 [lint]
 select = ["ALL"]
