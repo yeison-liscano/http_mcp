@@ -187,8 +187,8 @@ class BaseTransport:
             sorted_tools = sorted(all_tools, key=lambda x: x["name"])
             total_tools = len(sorted_tools)
 
-            cursor = validated_message.params.cursor or 0
-            start_index = max(0, min(cursor, total_tools))
+            cursor = validated_message.params.cursor if validated_message.params else 0
+            start_index = max(0, min(cursor or 0, total_tools))
             end_index = min(start_index + TOOLS_CHUNK_SIZE, total_tools)
             tools = sorted_tools[start_index:end_index]
 

@@ -61,4 +61,4 @@ class ToolsListRequestParams(BaseModel):
 
 class ToolsListRequest(JSONRPCRequest):
     method: Literal["tools/list"]
-    params: ToolsListRequestParams
+    params: ToolsListRequestParams | None = None
