@@ -1,4 +1,20 @@
-from pydantic import BaseModel
+import json
+
+from pydantic import BaseModel, ValidationError
+
+
+def sanitize_validation_errors(error: ValidationError) -> str:
+    """Return a sanitized JSON string from a Pydantic ValidationError.
+
+    Keeps only field locations and human-readable messages, stripping
+    internal details (raw input, Pydantic URLs, error type codes).
+
+    """
+    sanitized = tuple(
+        {"field": ".".join(str(loc) for loc in err["loc"]), "message": err["msg"]}
+        for err in error.errors()
+    )
+    return json.dumps(sanitized)
 
 
 def generate_union_schema(

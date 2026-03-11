@@ -51,6 +51,8 @@ class ToolsListRequestParams(BaseModel):
     def validate_cursor(cls, v: object) -> int | None:
         if v is None:
             return None
+        if isinstance(v, bool):
+            return None
         if isinstance(v, int | str | bytes):
             try:
                 return int(v)

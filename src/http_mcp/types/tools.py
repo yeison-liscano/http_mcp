@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from http_mcp.exceptions import ArgumentsError, ServerError, ToolInvocationError
 from http_mcp.types.models import Arguments, ErrorMessage
-from http_mcp.types.utils import generate_union_schema
+from http_mcp.types.utils import generate_union_schema, sanitize_validation_errors
 
 
 @dataclass
@@ -121,7 +121,7 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         try:
             validated_args = self.inputs.model_validate(args)
         except ValidationError as e:
-            raise ArgumentsError("tool", self.name, e.json()) from e
+            raise ArgumentsError("tool", self.name, sanitize_validation_errors(e)) from e
 
         try:
             _args = Arguments[TInputs](request, validated_args)
