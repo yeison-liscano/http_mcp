@@ -2,6 +2,13 @@ from typing import Literal
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 
+_MAX_NAME_LENGTH = 100
+
+
+def _safe_name(name: str) -> str:
+    """Truncate a user-supplied name for safe inclusion in error messages."""
+    return name[:_MAX_NAME_LENGTH]
+
 
 class BaseError(Exception):
     def __init__(self, error: Error) -> None:
@@ -24,7 +31,10 @@ class ServerError(BaseError):
 class ToolNotFoundError(ServerError):
     def __init__(self, tool_name: str) -> None:
         super().__init__(
-            Error(code=ErrorCode.RESOURCE_NOT_FOUND, description=f"Tool {tool_name} not found"),
+            Error(
+                code=ErrorCode.RESOURCE_NOT_FOUND,
+                description=f"Tool {_safe_name(tool_name)} not found",
+            ),
         )
 
 
@@ -33,7 +43,7 @@ class ToolInvocationError(ServerError):
         super().__init__(
             Error(
                 code=ErrorCode.INTERNAL_ERROR,
-                description=f"Error calling tool {tool_name}: {message}",
+                description=f"Error calling tool {_safe_name(tool_name)}: {message}",
             ),
         )
 
@@ -41,7 +51,10 @@ class ToolInvocationError(ServerError):
 class PromptNotFoundError(ServerError):
     def __init__(self, prompt_name: str) -> None:
         super().__init__(
-            Error(code=ErrorCode.RESOURCE_NOT_FOUND, description=f"Prompt {prompt_name} not found"),
+            Error(
+                code=ErrorCode.RESOURCE_NOT_FOUND,
+                description=f"Prompt {_safe_name(prompt_name)} not found",
+            ),
         )
 
 
@@ -50,7 +63,7 @@ class PromptInvocationError(ServerError):
         super().__init__(
             Error(
                 code=ErrorCode.INTERNAL_ERROR,
-                description=f"Error getting prompt {prompt_name}: {message}",
+                description=f"Error getting prompt {_safe_name(prompt_name)}: {message}",
             ),
         )
 
@@ -64,5 +77,7 @@ class ArgumentsError(ProtocolError):
         feature_name: str,
         message: str,
     ) -> None:
-        message = f"Error validating arguments for {feature_type} {feature_name}: {message}"
-        super().__init__(Error(code=ErrorCode.INVALID_PARAMS, description=message))
+        description = (
+            f"Error validating arguments for {feature_type} {_safe_name(feature_name)}: {message}"
+        )
+        super().__init__(Error(code=ErrorCode.INVALID_PARAMS, description=description))

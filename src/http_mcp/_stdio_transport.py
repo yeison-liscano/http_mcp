@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB, matching HTTP transport
+_MAX_LOG_LENGTH = 500
 
 
 class StdioTransport(BaseTransport):
@@ -71,7 +72,7 @@ class StdioTransport(BaseTransport):
             if not line:
                 continue
 
-            LOGGER.debug("Received message: %s", line)
+            LOGGER.debug("Received message: %s", line[:_MAX_LOG_LENGTH])
             json_message = {}
             try:
                 json_message = json.loads(line)
@@ -113,7 +114,7 @@ class StdioTransport(BaseTransport):
         response: str,
     ) -> None:
         """Write a JSON-RPC response to stdout."""
-        LOGGER.debug("Sending response: %s", response)
+        LOGGER.debug("Sending response: %s", response[:_MAX_LOG_LENGTH])
         writer.write(response.encode("utf-8"))
         writer.write(b"\n")
         await writer.drain()
@@ -124,10 +125,15 @@ class StdioTransport(BaseTransport):
         writer: asyncio.StreamWriter,
         request_headers: dict[str, str] | None = None,
     ) -> None:
+        asgi_headers: list[tuple[bytes, bytes]] = (
+            [(k.lower().encode(), v.encode()) for k, v in request_headers.items()]
+            if request_headers
+            else []
+        )
         scope: Scope = {
             "type": "http",
             "method": "POST",
-            "headers": request_headers or [],
+            "headers": asgi_headers,
             "path": "/",
             "client": ("127.0.0.1", 0),
             "server": ("127.0.0.1", 0),

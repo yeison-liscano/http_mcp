@@ -17,6 +17,10 @@ from http_mcp.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
+_SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"cache-control", b"no-store"),
+]
 
 
 class HTTPTransport(BaseTransport):
@@ -29,7 +33,7 @@ class HTTPTransport(BaseTransport):
         if request.method == "POST":
             content_type = request.headers.get("content-type")
             # Not support for SSE
-            if not content_type or "application/json" not in content_type:
+            if not content_type or content_type.split(";")[0].strip().lower() != "application/json":
                 LOGGER.error("Unsupported Media Type: %s", content_type)
                 await self._send_error_response(
                     send,
@@ -86,7 +90,10 @@ class HTTPTransport(BaseTransport):
                     {
                         "type": "http.response.start",
                         "status": 200,
-                        "headers": [(b"content-type", b"application/json")],
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            *_SECURITY_HEADERS,
+                        ],
                     },
                 )
 
@@ -134,6 +141,7 @@ class HTTPTransport(BaseTransport):
                 "status": HTTPStatus.OK.value,
                 "headers": [
                     (b"content-type", b"application/json"),
+                    *_SECURITY_HEADERS,
                 ],
             },
         )
@@ -154,6 +162,7 @@ class HTTPTransport(BaseTransport):
                 "headers": [
                     (b"allow", b"POST"),
                     (b"content-type", b"text/plain"),
+                    *_SECURITY_HEADERS,
                 ],
             },
         )
@@ -179,7 +188,7 @@ class HTTPTransport(BaseTransport):
             ),
         )
 
-        response_headers = [(b"content-type", b"application/json")]
+        response_headers = [(b"content-type", b"application/json"), *_SECURITY_HEADERS]
         if error_info.headers:
             response_headers.extend(
                 [(k.lower().encode(), v.encode()) for k, v in error_info.headers.items()],
