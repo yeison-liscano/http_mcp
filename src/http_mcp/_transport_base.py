@@ -1,4 +1,3 @@
-import json
 import logging
 from http import HTTPStatus
 
@@ -39,6 +38,7 @@ from http_mcp.exceptions import (
     ToolNotFoundError,
 )
 from http_mcp.server_interface import ServerInterface
+from http_mcp.types.utils import sanitize_validation_errors
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,12 +72,13 @@ class BaseTransport:
         try:
             message = InitializationRequest.model_validate(message.model_dump())
         except ValidationError as e:
+            LOGGER.exception("Initialization validation error")
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
                     code=ErrorCode.INVALID_PARAMS,
-                    description=json.dumps(e.errors()),
+                    description=sanitize_validation_errors(e),
                 ),
             ), HTTPStatus.BAD_REQUEST
         protocol_version = message.params.protocol_version
@@ -174,12 +175,13 @@ class BaseTransport:
             try:
                 validated_message = ToolsListRequest.model_validate(message.model_dump())
             except ValidationError as e:
+                LOGGER.exception("Tools list validation error")
                 return JSONRPCError(
                     jsonrpc="2.0",
                     id=message.id,
                     error=Error(
                         code=ErrorCode.INVALID_PARAMS,
-                        description=json.dumps(e.errors()),
+                        description=sanitize_validation_errors(e),
                     ),
                 )
 
@@ -216,12 +218,13 @@ class BaseTransport:
         try:
             message = ToolsCallRequest.model_validate(message.model_dump())
         except ValidationError as e:
+            LOGGER.exception("Tool call validation error")
             return JSONRPCError(
                 jsonrpc="2.0",
                 id=message.id,
                 error=Error(
                     code=ErrorCode.INVALID_PARAMS,
-                    description=json.dumps(e.errors()),
+                    description=sanitize_validation_errors(e),
                 ),
             )
 

@@ -10,6 +10,7 @@ from starlette.requests import Request
 from http_mcp._mcp_types.prompts import PromptArgument, PromptMessage, ProtocolPrompt
 from http_mcp.exceptions import ArgumentsError, PromptInvocationError, ServerError
 from http_mcp.types import Arguments
+from http_mcp.types.utils import sanitize_validation_errors
 
 
 @dataclass
@@ -91,7 +92,7 @@ class Prompt[TArguments: BaseModel | None]:
         try:
             _arguments = self.arguments_type.model_validate(arguments)
         except ValidationError as e:
-            raise ArgumentsError("prompt", self.name, e.json()) from e
+            raise ArgumentsError("prompt", self.name, sanitize_validation_errors(e)) from e
 
         try:
             if inspect.iscoroutinefunction(self.func):

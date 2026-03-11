@@ -15,12 +15,15 @@ from http_mcp._json_rcp_types.messages import (
 )
 from http_mcp._transport_base import BaseTransport
 from http_mcp.server_interface import ServerInterface
+from http_mcp.types.utils import sanitize_validation_errors
 
 if TYPE_CHECKING:
     from starlette.types import Scope
 
 
 LOGGER = logging.getLogger(__name__)
+
+MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB, matching HTTP transport
 
 
 class StdioTransport(BaseTransport):
@@ -30,7 +33,7 @@ class StdioTransport(BaseTransport):
     async def start(self, request_headers: dict[str, str] | None = None) -> None:
         """Start listening for messages on stdin."""
         loop = asyncio.get_running_loop()
-        reader = asyncio.StreamReader()
+        reader = asyncio.StreamReader(limit=MAXIMUM_MESSAGE_SIZE)
         protocol = asyncio.StreamReaderProtocol(reader)
         await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
@@ -41,7 +44,26 @@ class StdioTransport(BaseTransport):
         writer = asyncio.StreamWriter(writer_transport, writer_protocol, None, loop)
 
         while not reader.at_eof():
-            line = await reader.readline()
+            try:
+                line = await reader.readline()
+            except ValueError:
+                LOGGER.exception(
+                    "STDIO message exceeded maximum size of %d bytes",
+                    MAXIMUM_MESSAGE_SIZE,
+                )
+                error_response = JSONRPCError(
+                    jsonrpc="2.0",
+                    error=Error(
+                        code=ErrorCode.INVALID_PARAMS,
+                        description="Message too large",
+                    ),
+                )
+                await self._write_response(
+                    writer,
+                    error_response.model_dump_json(by_alias=True, exclude_none=True),
+                )
+                break
+
             if not line:
                 continue
 
@@ -59,11 +81,12 @@ class StdioTransport(BaseTransport):
                     request_headers,
                 )
             except ValidationError as e:
+                LOGGER.exception("STDIO request validation error")
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
                     error=Error(
                         code=ErrorCode.INVALID_PARAMS,
-                        description=json.dumps(e.errors()),
+                        description=sanitize_validation_errors(e),
                     ),
                 )
                 await self._write_response(

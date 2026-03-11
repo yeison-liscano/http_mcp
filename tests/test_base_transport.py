@@ -27,14 +27,8 @@ def test_initialize_bad_request() -> None:
         "id": 1,
         "error": {
             "code": ErrorCode.INVALID_PARAMS.value,
-            "message": '[{"type": "missing", "loc": ["params", "clientInfo"], '
-            '"msg": "Field required", "input": {"protocolVersion": '
-            '"2025-06-18"}, "url": '
-            '"https://errors.pydantic.dev/2.12/v/missing"}, {"type": '
-            '"missing", "loc": ["params", "capabilities"], "msg": '
-            '"Field required", "input": {"protocolVersion": '
-            '"2025-06-18"}, "url": '
-            '"https://errors.pydantic.dev/2.12/v/missing"}]',
+            "message": '[{"field": "params.clientInfo", "message": "Field required"}, '
+            '{"field": "params.capabilities", "message": "Field required"}]',
         },
     }
 
@@ -118,9 +112,7 @@ def test_invalid_tool_execution_request() -> None:
         "id": 1,
         "error": {
             "code": ErrorCode.INVALID_PARAMS.value,
-            "message": '[{"type": "model_type", "loc": ["params"], "msg": "Input should be a '
-            'valid dictionary or instance of ToolsCallRequestParams", "input": '
-            'null, "ctx": {"class_name": "ToolsCallRequestParams"}, "url": '
-            '"https://errors.pydantic.dev/2.12/v/model_type"}]',
+            "message": '[{"field": "params", "message": "Input should be a valid dictionary'
+            ' or instance of ToolsCallRequestParams"}]',
         },
     }

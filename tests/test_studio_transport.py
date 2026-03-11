@@ -74,14 +74,12 @@ async def test_studio_transport_invalid_request() -> None:
             },
         ).encode("utf-8"),
     )
-    assert not stderr_data
+    assert b"STDIO request validation error" in stderr_data
     assert json.loads(stdout_data) == {
         "jsonrpc": "2.0",
         "error": {
             "code": ErrorCode.INVALID_PARAMS.value,
-            "message": '[{"type": "missing", "loc": ["method"], "msg": "Field required", '
-            '"input": {"jsonrpc": "2.0", "id": 1}, "url": '
-            '"https://errors.pydantic.dev/2.12/v/missing"}]',
+            "message": '[{"field": "method", "message": "Field required"}]',
         },
     }
 
