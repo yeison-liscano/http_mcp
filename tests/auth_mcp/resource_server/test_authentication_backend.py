@@ -12,13 +12,14 @@ class MockTokenValidator(TokenValidator):
     async def validate_token(
         self,
         token: str,
-        _resource: str | None = None,
+        resource: str | None = None,
     ) -> TokenInfo | None:
         if token == _VALID_ACCESS_TOKEN:
             return TokenInfo(
                 subject="user@example.com",
                 scopes=("read", "write"),
                 client_id="test_client",
+                audience=resource,
             )
         return None
 
