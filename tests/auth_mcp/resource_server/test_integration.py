@@ -2,7 +2,11 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from auth_mcp.resource_server.integration import ProtectedMCPAppConfig, create_protected_mcp_app
+from auth_mcp.resource_server.integration import (
+    CORSConfig,
+    ProtectedMCPAppConfig,
+    create_protected_mcp_app,
+)
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 from http_mcp.server import MCPServer
 from http_mcp.types import Tool
@@ -172,3 +176,33 @@ def test_default_require_authentication_is_true() -> None:
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_cors_config_adds_cors_headers() -> None:
+    server = MCPServer(
+        name="test-cors",
+        version="1.0.0",
+        tools=_TOOLS,
+    )
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_uri="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+        require_authentication=False,
+        cors=CORSConfig(
+            allow_origins=("https://client.example.com",),
+        ),
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.options(
+        "/mcp",
+        headers={
+            "Origin": "https://client.example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert "access-control-allow-origin" in response.headers
+    assert response.headers["access-control-allow-origin"] == "https://client.example.com"

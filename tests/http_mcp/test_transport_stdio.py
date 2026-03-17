@@ -11,7 +11,7 @@ async def test_studio_transport() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
-        "from tests.app.main import run_stdio; run_stdio()",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -61,7 +61,7 @@ async def test_studio_transport_invalid_request() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
-        "from tests.app.main import run_stdio; run_stdio()",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -89,7 +89,7 @@ async def test_studio_transport_invalid_body() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
-        "from tests.app.main import run_stdio; run_stdio()",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -112,7 +112,7 @@ async def test_studio_transport_notification() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
-        "from tests.app.main import run_stdio; run_stdio()",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -134,7 +134,7 @@ async def test_studio_transport_no_content() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
-        "from tests.app.main import run_stdio; run_stdio()",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

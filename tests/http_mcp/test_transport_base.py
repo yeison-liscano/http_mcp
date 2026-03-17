@@ -3,7 +3,7 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from http_mcp._json_rcp_types.errors import ErrorCode
-from tests.models import DUMMY_SERVER
+from tests.fixtures.models import DUMMY_SERVER
 
 
 def test_initialize_bad_request() -> None:

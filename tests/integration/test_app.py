@@ -3,9 +3,9 @@ from http import HTTPStatus
 from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
-from tests.app.main import BasicAuthBackend, mcp_server, mount_mcp_server
-from tests.app.prompts import PROMPTS
-from tests.app.tools import TOOLS
+from tests.fixtures.main import BasicAuthBackend, mcp_server, mount_mcp_server
+from tests.fixtures.prompts import PROMPTS
+from tests.fixtures.tools import TOOLS
 
 HEADER_AUTHORIZATION = {"Authorization": "Bearer TEST_TOKEN"}
 

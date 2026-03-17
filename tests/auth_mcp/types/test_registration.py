@@ -72,6 +72,13 @@ def test_client_registration_request_rejects_data_uri() -> None:
         )
 
 
+def test_client_registration_request_rejects_ftp_scheme() -> None:
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        ClientRegistrationRequest(
+            redirect_uris=("ftp://files.example.com/callback",),
+        )
+
+
 def test_client_registration_request_rejects_relative_uri() -> None:
     with pytest.raises(ValidationError, match="must be an absolute URI"):
         ClientRegistrationRequest(

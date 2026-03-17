@@ -126,6 +126,28 @@ async def test_require_authentication_default_is_true() -> None:
 
 
 @pytest.mark.asyncio
+async def test_non_bearer_scheme_raises_when_auth_required() -> None:
+    backend = OAuthAuthenticationBackend(
+        token_validator=MockTokenValidator(),
+        resource_uri="https://mcp.example.com",
+    )
+    conn = _make_connection({"Authorization": "Basic dXNlcjpwYXNz"})
+    with pytest.raises(Exception, match="Invalid authorization scheme"):
+        await backend.authenticate(conn)
+
+
+@pytest.mark.asyncio
+async def test_malformed_token_raises_when_auth_required() -> None:
+    backend = OAuthAuthenticationBackend(
+        token_validator=MockTokenValidator(),
+        resource_uri="https://mcp.example.com",
+    )
+    conn = _make_connection({"Authorization": "Bearer tok\x00en"})
+    with pytest.raises(Exception, match="Malformed bearer token"):
+        await backend.authenticate(conn)
+
+
+@pytest.mark.asyncio
 async def test_rejects_oversized_token() -> None:
     backend = OAuthAuthenticationBackend(
         token_validator=MockTokenValidator(),

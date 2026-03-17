@@ -4,11 +4,17 @@ import pytest
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from http_mcp._json_rcp_types.errors import ErrorCode
+from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp._mcp_types.content import TextContent
 from http_mcp._mcp_types.prompts import PromptMessage
+from http_mcp.exceptions import ServerError
 from http_mcp.server import MCPServer
-from http_mcp.types import Arguments, Prompt
+from http_mcp.types import Arguments, NoArguments, Prompt
+from tests.fixtures.main import BasicAuthBackend, mount_mcp_server
+
+# ---------------------------------------------------------------------------
+# Models and helper prompts from test_prompts_methods.py
+# ---------------------------------------------------------------------------
 
 
 class TestArguments(BaseModel):
@@ -78,6 +84,14 @@ PROMPT_WITHOUT_ARGUMENTS_ERROR = Prompt(
     func=prompt_without_arguments_error,
     arguments_type=type(None),
 )
+
+
+HEADER_AUTHORIZATION = {"Authorization": "Bearer TEST_TOKEN"}
+
+
+# ---------------------------------------------------------------------------
+# Tests from test_prompts_methods.py
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -354,3 +368,187 @@ def test_prompt_not_found() -> None:
             "message": "Prompt not_found not found",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Tests from test_server_handling_prompt_scopes.py
+# ---------------------------------------------------------------------------
+
+
+def test_call_prompt_with_scope() -> None:
+    def prompt_with_scope() -> tuple[PromptMessage, ...]:
+        """Private prompt.
+
+        Only accessible to authenticated users with the 'private' scope.
+        """
+        return (
+            PromptMessage(
+                role="user",
+                content=TextContent(text="This is a private prompt."),
+            ),
+        )
+
+    server = MCPServer(
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(
+            Prompt(
+                func=prompt_with_scope,
+                arguments_type=type(None),
+                scopes=("private",),
+            ),
+        ),
+    )
+    app = mount_mcp_server(server, BasicAuthBackend(("private",)))
+    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "prompts/get",
+                "id": 1,
+                "params": {
+                    "name": "prompt_with_scope",
+                    "arguments": {},
+                },
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        response_json = response.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "description": (
+                    "Private prompt.\n"
+                    "\n"
+                    "Only accessible to authenticated users with the 'private' scope.\n"
+                ),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "text": "This is a private prompt.",
+                            "type": "text",
+                        },
+                    },
+                ],
+            },
+        }
+
+
+def test_call_prompt_without_required_scope() -> None:
+    def prompt_with_scope() -> tuple[PromptMessage, ...]:
+        """Private prompt.
+
+        Only accessible to authenticated users with the 'private' scope.
+        """
+        return (
+            PromptMessage(
+                role="user",
+                content=TextContent(text="This is a private prompt."),
+            ),
+        )
+
+    server = MCPServer(
+        tools=(),
+        name="test",
+        version="1.0.0",
+        prompts=(
+            Prompt(
+                func=prompt_with_scope,
+                arguments_type=type(None),
+                scopes=("private",),
+            ),
+        ),
+    )
+    app = mount_mcp_server(server, BasicAuthBackend(("non_sufficient_scope",)))
+    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "prompts/get",
+                "id": 1,
+                "params": {
+                    "name": "prompt_with_scope",
+                    "arguments": {},
+                },
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        response_json = response.json()
+        assert response_json == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": ErrorCode.RESOURCE_NOT_FOUND.value,
+                "message": "Prompt prompt_with_scope not found",
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
+# Tests from test_coverage_gaps.py (prompt-related)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_without_args_reraises_server_error() -> None:
+    def prompt_raising_server_error() -> tuple[PromptMessage, ...]:
+        """Raise a ServerError."""
+        raise ServerError(
+            Error(code=ErrorCode.INTERNAL_ERROR, description="Prompt server error"),
+        )
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        prompts=(
+            Prompt(func=prompt_raising_server_error, arguments_type=type(None)),
+        ),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "prompts/get",
+            "id": 1,
+            "params": {"name": "prompt_raising_server_error", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["error"]["code"] == ErrorCode.INTERNAL_ERROR.value
+
+
+def test_prompt_with_args_reraises_server_error() -> None:
+    def prompt_raising_server_error(
+        _args: Arguments[NoArguments],
+    ) -> tuple[PromptMessage, ...]:
+        """Raise a ServerError."""
+        raise ServerError(
+            Error(code=ErrorCode.INTERNAL_ERROR, description="Prompt args server error"),
+        )
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        prompts=(
+            Prompt(func=prompt_raising_server_error, arguments_type=NoArguments),
+        ),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "prompts/get",
+            "id": 1,
+            "params": {"name": "prompt_raising_server_error", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["error"]["code"] == ErrorCode.INTERNAL_ERROR.value
