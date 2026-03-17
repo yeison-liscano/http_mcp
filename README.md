@@ -1043,6 +1043,8 @@ For full documentation, best practices, and security surface details, see
 
 ## Installation
 
+Requires **Python 3.12+** (uses PEP 695 type parameter syntax).
+
 Install the package using pip or uv:
 
 ```bash
