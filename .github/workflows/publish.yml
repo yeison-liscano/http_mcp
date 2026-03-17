@@ -52,14 +52,17 @@ jobs:
         if: steps.check_tag.outputs.exists == 'false'
         run: uv build
 
-      # Check that basic features work and we didn't miss to include crucial files
+      # Smoke-test the built artifacts in an isolated env.
+      # Run from /tmp so the project source tree cannot shadow the installed package.
       - name: Smoke test (wheel)
         if: steps.check_tag.outputs.exists == 'false'
-        run: uv run --isolated --no-project --with dist/*.whl python tests/test_smoke.py
+        working-directory: /tmp
+        run: uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/*.whl python "$GITHUB_WORKSPACE"/tests/test_smoke.py
 
       - name: Smoke test (source distribution)
         if: steps.check_tag.outputs.exists == 'false'
-        run: uv run --isolated --no-project --with dist/*.tar.gz python tests/test_smoke.py
+        working-directory: /tmp
+        run: uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/*.tar.gz python "$GITHUB_WORKSPACE"/tests/test_smoke.py
 
       - name: Publish to PyPI
         if: steps.check_tag.outputs.exists == 'false'
