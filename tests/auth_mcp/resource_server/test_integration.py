@@ -16,19 +16,21 @@ class MockTokenValidator(TokenValidator):
     async def validate_token(
         self,
         token: str,
-        _resource: str | None = None,
+        resource: str | None = None,
     ) -> TokenInfo | None:
         if token == _VALID_TOKEN:
             return TokenInfo(
                 subject="testuser@example.com",
                 scopes=("read", "private"),
                 client_id="test_client",
+                audience=resource,
             )
         if token == _PUBLIC_ONLY_TOKEN:
             return TokenInfo(
                 subject="publicuser@example.com",
                 scopes=("read",),
                 client_id="test_client",
+                audience=resource,
             )
         return None
 
@@ -105,6 +107,9 @@ def test_unauthenticated_request_returns_401_when_auth_required() -> None:
     www_auth = response.headers["www-authenticate"]
     assert "Bearer" in www_auth
     assert "resource_metadata=" in www_auth
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+    assert "max-age=" in response.headers["strict-transport-security"]
 
 
 def test_authenticated_request_lists_all_accessible_tools() -> None:

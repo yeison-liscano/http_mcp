@@ -25,7 +25,9 @@ It is intended to be used with a Starlette or FastAPI application (see
   - [Prompts with Authorization Scopes](#prompts-with-authorization-scopes)
 - [STDIO Transport](#stdio-transport)
 - [Authentication and Authorization](#authentication-and-authorization)
+- [OAuth 2.1 Authorization (auth_mcp)](#oauth-21-authorization-auth_mcp)
 - [API Reference](#api-reference)
+- [Security Surfaces by Endpoint](#security-surfaces-by-endpoint)
 - [License](#license)
 
 ## Features
@@ -46,6 +48,9 @@ It is intended to be used with a Starlette or FastAPI application (see
   Starlette's authentication system.
 - **Error Handling**: Tools can optionally return error messages instead of
   raising exceptions.
+- **OAuth 2.1 Authorization**: Optional `auth_mcp` package with Bearer token
+  validation, Protected Resource Metadata (RFC 9728), and `WWW-Authenticate`
+  error responses. Install with `pip install http-mcp[auth]`.
 
 ## Server Architecture
 
@@ -818,12 +823,119 @@ from http_mcp.types import NoArguments
 Tool(func=my_func, inputs=NoArguments, output=MyOutput)
 ```
 
+## OAuth 2.1 Authorization (auth_mcp)
+
+The `auth_mcp` package adds standards-compliant OAuth 2.1 authorization to your
+MCP server. Install with the `auth` extra:
+
+```bash
+pip install http-mcp[auth]
+```
+
+### Quick Start
+
+```python
+from http_mcp.server import MCPServer
+from auth_mcp.resource_server import (
+    ProtectedMCPAppConfig,
+    TokenInfo,
+    TokenValidator,
+    create_protected_mcp_app,
+)
+
+
+class MyTokenValidator(TokenValidator):
+    async def validate_token(
+        self, token: str, resource: str | None = None
+    ) -> TokenInfo | None:
+        # Validate against your authorization server
+        ...
+
+
+mcp_server = MCPServer(name="my-server", version="1.0.0", tools=MY_TOOLS)
+
+config = ProtectedMCPAppConfig(
+    mcp_server=mcp_server,
+    token_validator=MyTokenValidator(),
+    resource_uri="https://mcp.example.com",
+    authorization_servers=("https://auth.example.com",),
+)
+
+app = create_protected_mcp_app(config)
+```
+
+This gives you:
+
+- Bearer token validation on all MCP endpoints (secure by default)
+- `/.well-known/oauth-protected-resource` discovery endpoint (RFC 9728)
+- `WWW-Authenticate` headers on 401/403 with `resource_metadata` parameter
+- Security headers (HSTS, nosniff, no-store)
+- Optional CORS configuration via `CORSConfig`
+
+For full documentation, best practices, and security surface details, see
+[auth_mcp README](src/auth_mcp/README.md).
+
+## Security Surfaces by Endpoint
+
+### `POST /mcp` — MCP JSON-RPC Endpoint
+
+| Surface | Details | |---|---| | **Authentication** | When using `auth_mcp`,
+Bearer tokens are extracted from the `Authorization` header and validated via
+`TokenValidator`. Tokens exceeding 2048 characters or containing characters
+outside the RFC 6750 `b64token` pattern are rejected before reaching the
+validator. Without `auth_mcp`, authentication is handled by Starlette's
+`AuthenticationMiddleware`. | | **Authorization** | Scope-based filtering via
+Starlette's `has_required_scope()`. Tools and prompts without matching scopes
+are hidden from listings and blocked on invocation. | | **Input validation** |
+JSON-RPC messages validated by Pydantic. Request body capped at 4 MB.
+Content-Type strictly checked (`application/json` only, media type parameters
+ignored). | | **Error handling** | Tool and prompt names truncated to 100
+characters in error messages. Pydantic validation errors sanitized before
+inclusion in responses. | | **Response headers** |
+`X-Content-Type-Options: nosniff`, `Cache-Control: no-store` on all responses.
+`auth_mcp` additionally adds
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`. |
+
+### `GET /.well-known/oauth-protected-resource` — Discovery Endpoint (auth_mcp)
+
+| Surface | Details | |---|---| | **Authentication** | Subject to the same auth
+middleware as `/mcp`. When `require_authentication=True` (default), requires a
+valid token. Set to `False` if clients need to discover the authorization server
+before authenticating. | | **Input validation** | Only `GET` allowed; other
+methods return `405 Method Not Allowed`. | | **Output** | Serialized once at
+startup from a frozen `ProtectedResourceMetadata` model. URI fields validated as
+HTTP/HTTPS URLs via Pydantic's `AnyHttpUrl`. |
+
+### `WWW-Authenticate` Response Header (auth_mcp)
+
+| Surface | Details | |---|---| | **Header injection** | All parameter values
+(`realm`, `resource_metadata`, `scope`, `error`, `error_description`) are
+sanitized: CR/LF characters stripped, backslash and double-quote escaped per RFC
+7230 quoted-string rules. | | **Information disclosure** | Error responses use
+generic messages (`"Authentication required"`). The original
+`AuthenticationError` details are discarded. Error codes (`invalid_token` on
+401\) follow RFC 6750 without leaking internal state. |
+
+### STDIO Transport
+
+| Surface | Details | |---|---| | **Message size** | Capped at 4 MB, matching
+HTTP transport. | | **Logging** | Messages truncated to 500 characters in debug
+logs to prevent log flooding. Token values are never logged. | | **Headers** |
+Request headers are converted to proper ASGI `list[tuple[bytes, bytes]]` format.
+|
+
 ## Installation
 
 Install the package using pip or uv:
 
 ```bash
 pip install http-mcp
+```
+
+With OAuth 2.1 authorization support:
+
+```bash
+pip install http-mcp[auth]
 ```
 
 or

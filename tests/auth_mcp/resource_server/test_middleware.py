@@ -82,7 +82,7 @@ def test_auth_error_middleware_adds_www_authenticate_on_403() -> None:
     assert 'realm="mcp"' in www_auth
 
 
-def test_auth_error_middleware_does_not_modify_200() -> None:
+def test_auth_error_middleware_adds_security_headers_on_200() -> None:
     async def return_ok(_request: Request) -> Response:
         return JSONResponse({"status": "ok"})
 
@@ -99,6 +99,9 @@ def test_auth_error_middleware_does_not_modify_200() -> None:
     response = client.get("/")
     assert response.status_code == HTTPStatus.OK
     assert "www-authenticate" not in response.headers
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+    assert "max-age=" in response.headers["strict-transport-security"]
 
 
 def test_on_auth_error_returns_json_401() -> None:

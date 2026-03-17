@@ -8,6 +8,12 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from auth_mcp.types.errors import OAuthErrorResponse, WWWAuthenticateChallenge
 
+_SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"cache-control", b"no-store"),
+    (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+]
+
 
 def build_www_authenticate_header(
     resource_metadata_url: str,
@@ -28,10 +34,11 @@ def build_www_authenticate_header(
 
 
 class AuthErrorMiddleware:
-    """ASGI middleware that intercepts 401/403 responses and adds WWW-Authenticate headers.
+    """ASGI middleware that adds security headers and WWW-Authenticate on 401/403.
 
-    Wraps Starlette's AuthenticationMiddleware to produce standards-compliant
-    OAuth 2.1 error responses with resource_metadata discovery parameter.
+    Adds security headers (nosniff, no-store, HSTS) to all HTTP responses.
+    On 401/403, additionally injects a WWW-Authenticate header with the
+    resource_metadata discovery parameter per RFC 9728.
     """
 
     def __init__(
@@ -49,15 +56,13 @@ class AuthErrorMiddleware:
             await self._app(scope, receive, send)
             return
 
-        status_code = 0
-        original_headers: list[tuple[bytes, bytes]] = []
-
         async def send_wrapper(message: dict[str, Any]) -> None:
-            nonlocal status_code, original_headers
-
             if message["type"] == "http.response.start":
                 status_code = message.get("status", 0)
-                original_headers = list(message.get("headers", []))
+                headers = list(message.get("headers", []))
+
+                existing_names = {h[0] for h in headers}
+                headers.extend(h for h in _SECURITY_HEADERS if h[0] not in existing_names)
 
                 if status_code in (
                     HTTPStatus.UNAUTHORIZED,
@@ -69,13 +74,11 @@ class AuthErrorMiddleware:
                         realm=self._realm,
                         error=error,
                     )
-                    original_headers.append(
+                    headers.append(
                         (b"www-authenticate", www_auth.encode("utf-8")),
                     )
-                    message = {
-                        **message,
-                        "headers": original_headers,
-                    }
+
+                message = {**message, "headers": headers}
 
             await send(message)
 
@@ -89,7 +92,7 @@ def on_auth_error(
     """Error handler for Starlette's AuthenticationMiddleware.
 
     Returns a JSON response with an OAuth error body for 401 responses.
-    The WWW-Authenticate header is added by AuthErrorMiddleware.
+    Security headers and WWW-Authenticate are added by AuthErrorMiddleware.
     """
     error_response = OAuthErrorResponse(
         error="invalid_token",

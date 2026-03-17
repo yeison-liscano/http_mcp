@@ -45,8 +45,10 @@ ruff check && mypy . && pytest --cov-report term-missing --cov=src --cov-fail-un
 
 ### Source Layout
 
-Source is in `src/http_mcp/` with `hatchling` as build backend. The package uses
-`uv` for dependency management.
+Source is in `src/http_mcp/` and `src/auth_mcp/` with `hatchling` as build
+backend. The package uses `uv` for dependency management. Both packages ship in
+the same wheel (`http-mcp`); `auth_mcp` is available via
+`pip install http-mcp[auth]`.
 
 ### Core Components
 
@@ -77,11 +79,41 @@ Source is in `src/http_mcp/` with `hatchling` as build backend. The package uses
   prompts, content). Supported versions: 2025-03-26, 2025-06-18, 2025-11-25.
 - **`_json_rcp_types/`** — JSON-RPC message and error types.
 
+### auth_mcp Package (`src/auth_mcp/`)
+
+OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
+
+- **`exceptions.py`** — `AuthError` hierarchy: `TokenValidationError`,
+  `InsufficientScopeError`, `DiscoveryError`, `RegistrationError`, `PKCEError`.
+- **`types/`** — Pydantic models (all frozen, URI-validated):
+  - `metadata.py` — `ProtectedResourceMetadata` (RFC 9728),
+    `AuthorizationServerMetadata` (RFC 8414). URI fields use `AnyHttpUrl`;
+    issuer enforces HTTPS.
+  - `oauth.py` — `TokenRequest` (`grant_type` is
+    `Literal["authorization_code", "refresh_token"]`), `TokenResponse`,
+    `AuthorizationRequest` (`code_challenge_method` is `Literal["S256"]`).
+  - `registration.py` — `ClientRegistrationRequest` (redirect URIs validated:
+    HTTPS required, HTTP only for localhost), `ClientRegistrationResponse`.
+  - `errors.py` — `OAuthErrorResponse`, `WWWAuthenticateChallenge` (header
+    values sanitized against injection).
+- **`resource_server/`** — Resource Server components:
+  - `token_validator.py` — Abstract `TokenValidator` + `TokenInfo` model.
+  - `authentication_backend.py` — `OAuthAuthenticationBackend` (Starlette
+    backend, `require_authentication=True` by default, token format/length
+    validation per RFC 6750).
+  - `metadata_endpoint.py` — `ProtectedResourceMetadataEndpoint` ASGI handler
+    for `/.well-known/oauth-protected-resource`.
+  - `middleware.py` — `AuthErrorMiddleware` (WWW-Authenticate on 401/403),
+    `build_www_authenticate_header()`.
+  - `integration.py` — `ProtectedMCPAppConfig`, `CORSConfig`,
+    `create_protected_mcp_app()`.
+
 ### Test Structure
 
 Tests in `tests/` use pytest with pytest-asyncio. A test Starlette app lives in
 `tests/app/` with mock tools, prompts, authentication backend, and context.
-Tests use `httpx` with Starlette's `TestClient`.
+Tests use `httpx` with Starlette's `TestClient`. Auth tests are in
+`tests/auth_mcp/` mirroring the source layout.
 
 ## Code Style Conventions
 
