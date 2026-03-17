@@ -21,6 +21,9 @@ version = "0.10.1"
 
 dependencies = ["pydantic (>=2.12.5,<3.0.0)", "uvicorn (>=0.41.0,<0.42.0)", "starlette (>=0.52.1,<0.53.0)"]
 
+[project.optional-dependencies]
+auth = []
+
 [dependency-groups]
 dev = [
     "jsonschema (>=4.26.0,<5.0.0)",
@@ -34,7 +37,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/http_mcp"]
+packages = ["src/http_mcp", "src/auth_mcp"]
 
 [project.urls]
 Homepage = "https://github.com/yeison-liscano/http_mcp"
