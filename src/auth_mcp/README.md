@@ -9,6 +9,9 @@ Resource Metadata (RFC 9728), Bearer token validation, and proper
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Architecture Overview](#architecture-overview)
+  - [Middleware Stack](#middleware-stack)
+  - [Request Authentication Flow](#request-authentication-flow)
 - [Components](#components)
   - [Token Validator](#token-validator)
   - [Authentication Backend](#authentication-backend)
@@ -75,6 +78,85 @@ This gives you:
   discovery parameter
 - `Strict-Transport-Security`, `X-Content-Type-Options`, and `Cache-Control`
   security headers
+
+## Architecture Overview
+
+`auth_mcp` wraps your `MCPServer` in a layered Starlette application assembled
+by `create_protected_mcp_app()`. Understanding the layers makes it easier to
+reason about what happens on every request.
+
+### Middleware Stack
+
+```
+Incoming HTTP request
+        │
+        ▼
+┌─────────────────────────┐
+│     CORSMiddleware      │  (optional — only when config.cors is set)
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│   AuthErrorMiddleware   │  Adds HSTS / nosniff / no-store to all responses.
+│                         │  On 401/403: injects WWW-Authenticate header with
+│                         │  resource_metadata discovery URL.
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│ AuthenticationMiddleware│  Starlette built-in. Calls
+│  (OAuth Backend)        │  OAuthAuthenticationBackend.authenticate() on every
+│                         │  request and populates request.user / request.auth.
+└───────────┬─────────────┘
+            │
+       ┌────┴──────────────────────────────┐
+       │                                   │
+       ▼                                   ▼
+┌─────────────────┐             ┌──────────────────────────────┐
+│   MCPServer     │             │ ProtectedResourceMetadata    │
+│ (at mcp_path,   │             │ Endpoint                     │
+│  default /mcp)  │             │ /.well-known/oauth-protected-│
+│                 │             │ resource                     │
+└─────────────────┘             └──────────────────────────────┘
+```
+
+### Request Authentication Flow
+
+The following steps describe what happens when a client sends `POST /mcp`:
+
+1. **`AuthenticationMiddleware`** calls
+   `OAuthAuthenticationBackend.authenticate()`:
+
+   - If the `Authorization` header is missing and `require_authentication=True`,
+     raises `AuthenticationError` → 401.
+   - If the scheme is not `Bearer`, raises `AuthenticationError` → 401.
+   - If the token exceeds 2048 characters or contains characters outside the RFC
+     6750 `b64token` alphabet, the token is rejected without calling the
+     validator → 401.
+   - Calls `TokenValidator.validate_token(token, resource_uri)`. A `None` return
+     means the token is invalid or expired → 401.
+   - On success, sets `request.user` (`SimpleUser(subject)`) and `request.auth`
+     (`AuthCredentials(scopes)`) for downstream handlers.
+
+1. **`MCPServer`** handles the JSON-RPC request. It reads `request.auth` (via
+   Starlette's `has_required_scope()`) to decide which tools and prompts the
+   caller is allowed to see and invoke. A tool whose `scopes` are not a subset
+   of the caller's granted scopes returns 403.
+
+1. **`AuthErrorMiddleware`** intercepts the outgoing response:
+
+   - Appends `Strict-Transport-Security`, `X-Content-Type-Options`, and
+     `Cache-Control: no-store` to every response.
+   - On 401, adds
+     `WWW-Authenticate: Bearer realm="…", resource_metadata="…/.well-known/oauth-protected-resource", error="invalid_token"`.
+   - On 403, adds
+     `WWW-Authenticate: Bearer realm="…", resource_metadata="…/.well-known/oauth-protected-resource"`
+     (no error code, following RFC 6750 §3.1).
+
+1. Clients that receive a 401 follow the `resource_metadata` URL to
+   `GET /.well-known/oauth-protected-resource`, discover the authorization
+   server listed in `authorization_servers`, complete the OAuth 2.1 flow, and
+   retry with a valid Bearer token.
 
 ## Components
 
