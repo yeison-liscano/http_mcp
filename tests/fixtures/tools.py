@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from starlette.authentication import has_required_scope
 
 from http_mcp.types import Arguments, NoArguments, Tool
-from tests.app.context import Context
+from tests.fixtures.context import Context
 
 
 class GetWeatherInput(BaseModel):

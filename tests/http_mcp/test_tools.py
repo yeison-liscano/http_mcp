@@ -3,12 +3,16 @@ from http import HTTPStatus
 from pydantic import BaseModel, Field
 from starlette.testclient import TestClient
 
-from http_mcp._json_rcp_types.errors import ErrorCode
-from http_mcp.exceptions import ToolInvocationError
+from http_mcp._json_rcp_types.errors import Error, ErrorCode
+from http_mcp.exceptions import ServerError, ToolInvocationError
 from http_mcp.server import MCPServer
-from http_mcp.types import Arguments, Tool
-from tests.app.context import Context
-from tests.app.main import mount_mcp_server
+from http_mcp.types import Arguments, NoArguments, Tool
+from tests.fixtures.context import Context
+from tests.fixtures.main import mount_mcp_server
+
+# ---------------------------------------------------------------------------
+# Models and helper tools from test_tools_methods.py
+# ---------------------------------------------------------------------------
 
 
 class TestTool1Arguments(BaseModel):
@@ -107,6 +111,25 @@ TOOLS = (
         return_error_message=True,
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Model from test_coverage_gaps.py
+# ---------------------------------------------------------------------------
+
+
+class SimpleOutput(BaseModel):
+    value: str = Field(description="A value")
+
+
+_TOOLS_LIST_CHUNK_SIZE = 100
+_TOOLS_OVERFLOW_COUNT = 150
+_TOOLS_SECOND_PAGE_COUNT = 50
+
+
+# ---------------------------------------------------------------------------
+# Tests from test_tools_methods.py
+# ---------------------------------------------------------------------------
 
 
 def test_list_tools() -> None:
@@ -571,3 +594,178 @@ def test_tool_not_found() -> None:
             "message": "Tool not_found not found",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Tests from test_coverage_gaps.py (tool-related)
+# ---------------------------------------------------------------------------
+
+
+def test_tools_list_pagination_returns_next_cursor() -> None:
+    tools = tuple(
+        Tool(
+            func=lambda: SimpleOutput(value="ok"),
+            inputs=type(None),
+            output=SimpleOutput,
+        )
+        for _ in range(_TOOLS_OVERFLOW_COUNT)
+    )
+    for i, tool in enumerate(tools):
+        tool.func.__name__ = f"tool_{i}"
+        tool.func.__doc__ = f"Tool {i}."
+
+    server = MCPServer(name="test", version="1.0.0", tools=tools)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["result"]["nextCursor"] is not None
+    assert len(data["result"]["tools"]) == _TOOLS_LIST_CHUNK_SIZE
+
+    response2 = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "id": 2,
+            "params": {"cursor": data["result"]["nextCursor"]},
+        },
+    )
+    assert response2.status_code == HTTPStatus.OK
+    data2 = response2.json()
+    assert len(data2["result"]["tools"]) == _TOOLS_SECOND_PAGE_COUNT
+    assert data2["result"].get("nextCursor") is None
+
+
+def test_get_state_key_missing_key_raises_server_error() -> None:
+    def tool_accessing_missing_key(args: Arguments[NoArguments]) -> SimpleOutput:
+        """Access a missing state key."""
+        args.get_state_key("nonexistent_key", object)
+        return SimpleOutput(value="unreachable")
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=(
+            Tool(
+                func=tool_accessing_missing_key,
+                inputs=NoArguments,
+                output=SimpleOutput,
+            ),
+        ),
+    )
+    app = mount_mcp_server(server)
+    with TestClient(app) as client:
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 1,
+                "params": {"name": "tool_accessing_missing_key", "arguments": {}},
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+        assert data["result"]["isError"] is True
+        assert "nonexistent_key" in data["result"]["content"][0]["text"]
+
+
+def test_tool_without_args_reraises_server_error() -> None:
+    def tool_raising_server_error() -> SimpleOutput:
+        """Raise a ServerError."""
+        raise ServerError(
+            Error(code=ErrorCode.INTERNAL_ERROR, description="Custom server error"),
+        )
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=(
+            Tool(func=tool_raising_server_error, inputs=type(None), output=SimpleOutput),
+        ),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "tool_raising_server_error", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["result"]["isError"] is True
+    assert "Custom server error" in data["result"]["content"][0]["text"]
+
+
+def test_tool_with_args_reraises_server_error() -> None:
+    def tool_raising_server_error(_args: Arguments[NoArguments]) -> SimpleOutput:
+        """Raise a ServerError."""
+        raise ServerError(
+            Error(code=ErrorCode.INTERNAL_ERROR, description="Args server error"),
+        )
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=(
+            Tool(func=tool_raising_server_error, inputs=NoArguments, output=SimpleOutput),
+        ),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "tool_raising_server_error", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["result"]["isError"] is True
+    assert "Args server error" in data["result"]["content"][0]["text"]
+
+
+def test_tool_returns_error_message_when_configured() -> None:
+    def tool_raising_invocation_error(
+        _args: Arguments[NoArguments],
+    ) -> SimpleOutput:
+        """Raise a ToolInvocationError."""
+        raise ToolInvocationError("tool_raising_invocation_error", "Something failed")
+
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=(
+            Tool(
+                func=tool_raising_invocation_error,
+                inputs=NoArguments,
+                output=SimpleOutput,
+                return_error_message=True,
+            ),
+        ),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "tool_raising_invocation_error", "arguments": {}},
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["result"]["isError"] is False
+    content = data["result"]["structuredContent"]
+    assert "Something failed" in content["error_message"]

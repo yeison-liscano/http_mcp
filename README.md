@@ -879,50 +879,54 @@ For full documentation, best practices, and security surface details, see
 
 ### `POST /mcp` — MCP JSON-RPC Endpoint
 
-| Surface | Details | |---|---| | **Authentication** | When using `auth_mcp`,
-Bearer tokens are extracted from the `Authorization` header and validated via
-`TokenValidator`. Tokens exceeding 2048 characters or containing characters
-outside the RFC 6750 `b64token` pattern are rejected before reaching the
-validator. Without `auth_mcp`, authentication is handled by Starlette's
-`AuthenticationMiddleware`. | | **Authorization** | Scope-based filtering via
-Starlette's `has_required_scope()`. Tools and prompts without matching scopes
-are hidden from listings and blocked on invocation. | | **Input validation** |
-JSON-RPC messages validated by Pydantic. Request body capped at 4 MB.
-Content-Type strictly checked (`application/json` only, media type parameters
-ignored). | | **Error handling** | Tool and prompt names truncated to 100
-characters in error messages. Pydantic validation errors sanitized before
-inclusion in responses. | | **Response headers** |
-`X-Content-Type-Options: nosniff`, `Cache-Control: no-store` on all responses.
-`auth_mcp` additionally adds
-`Strict-Transport-Security: max-age=31536000; includeSubDomains`. |
+- **Authentication** — When using `auth_mcp`, Bearer tokens are extracted from
+  the `Authorization` header and validated via `TokenValidator`. Tokens
+  exceeding 2048 characters or containing characters outside the RFC 6750
+  `b64token` pattern are rejected before reaching the validator. Without
+  `auth_mcp`, authentication is handled by Starlette's
+  `AuthenticationMiddleware`.
+- **Authorization** — Scope-based filtering via Starlette's
+  `has_required_scope()`. Tools and prompts without matching scopes are hidden
+  from listings and blocked on invocation.
+- **Input validation** — JSON-RPC messages validated by Pydantic. Request body
+  capped at 4 MB. Content-Type strictly checked (`application/json` only, media
+  type parameters ignored).
+- **Error handling** — Tool and prompt names truncated to 100 characters in
+  error messages. Pydantic validation errors sanitized before inclusion in
+  responses.
+- **Response headers** — `X-Content-Type-Options: nosniff`,
+  `Cache-Control: no-store` on all responses. `auth_mcp` additionally adds
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
 
 ### `GET /.well-known/oauth-protected-resource` — Discovery Endpoint (auth_mcp)
 
-| Surface | Details | |---|---| | **Authentication** | Subject to the same auth
-middleware as `/mcp`. When `require_authentication=True` (default), requires a
-valid token. Set to `False` if clients need to discover the authorization server
-before authenticating. | | **Input validation** | Only `GET` allowed; other
-methods return `405 Method Not Allowed`. | | **Output** | Serialized once at
-startup from a frozen `ProtectedResourceMetadata` model. URI fields validated as
-HTTP/HTTPS URLs via Pydantic's `AnyHttpUrl`. |
+- **Authentication** — Subject to the same auth middleware as `/mcp`. When
+  `require_authentication=True` (default), requires a valid token. Set to
+  `False` if clients need to discover the authorization server before
+  authenticating.
+- **Input validation** — Only `GET` allowed; other methods return
+  `405 Method Not Allowed`.
+- **Output** — Serialized once at startup from a frozen
+  `ProtectedResourceMetadata` model. URI fields validated as HTTP/HTTPS URLs via
+  Pydantic's `AnyHttpUrl`.
 
 ### `WWW-Authenticate` Response Header (auth_mcp)
 
-| Surface | Details | |---|---| | **Header injection** | All parameter values
-(`realm`, `resource_metadata`, `scope`, `error`, `error_description`) are
-sanitized: CR/LF characters stripped, backslash and double-quote escaped per RFC
-7230 quoted-string rules. | | **Information disclosure** | Error responses use
-generic messages (`"Authentication required"`). The original
-`AuthenticationError` details are discarded. Error codes (`invalid_token` on
-401\) follow RFC 6750 without leaking internal state. |
+- **Header injection** — All parameter values (`realm`, `resource_metadata`,
+  `scope`, `error`, `error_description`) are sanitized: CR/LF characters
+  stripped, backslash and double-quote escaped per RFC 7230 quoted-string rules.
+- **Information disclosure** — Error responses use generic messages
+  (`"Authentication required"`). The original `AuthenticationError` details are
+  discarded. Error codes (`invalid_token` on 401) follow RFC 6750 without
+  leaking internal state.
 
 ### STDIO Transport
 
-| Surface | Details | |---|---| | **Message size** | Capped at 4 MB, matching
-HTTP transport. | | **Logging** | Messages truncated to 500 characters in debug
-logs to prevent log flooding. Token values are never logged. | | **Headers** |
-Request headers are converted to proper ASGI `list[tuple[bytes, bytes]]` format.
-|
+- **Message size** — Capped at 4 MB, matching HTTP transport.
+- **Logging** — Messages truncated to 500 characters in debug logs to prevent
+  log flooding. Token values are never logged.
+- **Headers** — Request headers are converted to proper ASGI
+  `list[tuple[bytes, bytes]]` format.
 
 ## Installation
 

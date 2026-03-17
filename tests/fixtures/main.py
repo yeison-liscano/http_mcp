@@ -18,9 +18,9 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import HTTPConnection
 
 from http_mcp.server import MCPServer
-from tests.app.context import Context
-from tests.app.prompts import PROMPTS
-from tests.app.tools import TOOLS
+from tests.fixtures.context import Context
+from tests.fixtures.prompts import PROMPTS
+from tests.fixtures.tools import TOOLS
 
 mcp_server = MCPServer(tools=TOOLS, prompts=PROMPTS, name="test", version="1.0.0")
 

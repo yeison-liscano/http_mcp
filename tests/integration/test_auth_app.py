@@ -12,9 +12,9 @@ from starlette.testclient import TestClient
 from auth_mcp.resource_server.integration import ProtectedMCPAppConfig, create_protected_mcp_app
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 from http_mcp.server import MCPServer
-from tests.app.main import lifespan
-from tests.app.prompts import PROMPTS
-from tests.app.tools import TOOLS
+from tests.fixtures.main import lifespan
+from tests.fixtures.prompts import PROMPTS
+from tests.fixtures.tools import TOOLS
 
 _VALID_TOKEN = "test_oauth_token"  # noqa: S105
 _RESOURCE_URI = "https://mcp.example.com"
