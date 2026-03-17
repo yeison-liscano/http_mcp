@@ -2,7 +2,6 @@ from http import HTTPStatus
 
 from starlette.testclient import TestClient
 
-from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Tool
 from tests.fixtures.context import Context
@@ -244,16 +243,8 @@ def test_server_call_tool_without_required_scope() -> None:
                 },
             },
         )
-        assert response.status_code == HTTPStatus.OK
-        response_json = response.json()
-        assert response_json == {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": ErrorCode.RESOURCE_NOT_FOUND.value,
-                "message": "Tool simple_server_tool_with_context not found",
-            },
-        }
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.json() == {"error": "insufficient_scope"}
 
         assert client.app_state["context"].called_tools == []
 

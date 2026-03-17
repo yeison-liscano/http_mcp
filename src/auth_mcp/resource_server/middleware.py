@@ -68,7 +68,10 @@ class AuthErrorMiddleware:
                     HTTPStatus.UNAUTHORIZED,
                     HTTPStatus.FORBIDDEN,
                 ):
-                    error = "invalid_token" if status_code == HTTPStatus.UNAUTHORIZED else None
+                    if status_code == HTTPStatus.UNAUTHORIZED:
+                        error = "invalid_token"
+                    else:
+                        error = "insufficient_scope"
                     www_auth = build_www_authenticate_header(
                         resource_metadata_url=self._resource_metadata_url,
                         realm=self._realm,

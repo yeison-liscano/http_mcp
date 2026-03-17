@@ -20,6 +20,18 @@ class BaseError(Exception):
         return self.message
 
 
+class InsufficientScopeError(Exception):
+    """Raised when the request has a valid token but lacks the required scopes.
+
+    Handled by the HTTP transport as a 403 Forbidden response to trigger the
+    OAuth 2.1 step-up authorization flow. STDIO transport returns a JSON-RPC error.
+    """
+
+    def __init__(self, required_scopes: tuple[str, ...]) -> None:
+        self.required_scopes = required_scopes
+        super().__init__("Insufficient scope")
+
+
 class ProtocolError(BaseError):
     """raise error related to protocol validations."""
 

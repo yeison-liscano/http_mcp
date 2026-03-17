@@ -299,10 +299,8 @@ def test_call_private_tool_without_scope_returns_error() -> None:
                 "params": {"name": "private_tool", "arguments": {}},
             },
         )
-        assert response.status_code == HTTPStatus.OK
-        result = response.json()
-        assert "error" in result
-        assert result["error"]["message"] == "Tool private_tool not found"
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.json() == {"error": "insufficient_scope"}
 
 
 def test_call_tool_unauthenticated_returns_401() -> None:
@@ -339,9 +337,8 @@ def test_get_private_prompt_without_scope_returns_error() -> None:
         "prompts/get",
         {"name": "private_prompt", "arguments": {}},
     )
-    assert result["status"] == HTTPStatus.OK
-    assert "error" in result["json"]
-    assert result["json"]["error"]["message"] == "Prompt private_prompt not found"
+    assert result["status"] == HTTPStatus.FORBIDDEN
+    assert result["json"] == {"error": "insufficient_scope"}
 
 
 def test_get_prompt_unauthenticated_returns_401() -> None:
@@ -387,3 +384,65 @@ def test_initialize_unauthenticated_returns_401() -> None:
         authenticated=False,
     )
     assert result["status"] == HTTPStatus.UNAUTHORIZED
+
+
+# --- Insufficient scope: 403 + WWW-Authenticate ---
+
+
+def test_insufficient_scope_tool_returns_403() -> None:
+    client = _create_app(scopes=())
+    result = _post_mcp(
+        client,
+        "tools/call",
+        {"name": "private_tool", "arguments": {}},
+    )
+    assert result["status"] == HTTPStatus.FORBIDDEN
+
+
+def test_insufficient_scope_tool_has_www_authenticate_header() -> None:
+    client = _create_app(scopes=())
+    result = _post_mcp(
+        client,
+        "tools/call",
+        {"name": "private_tool", "arguments": {}},
+    )
+    assert "www-authenticate" in result["headers"]
+    www_auth = result["headers"]["www-authenticate"]
+    assert "Bearer" in www_auth
+    assert "insufficient_scope" in www_auth
+    assert "resource_metadata=" in www_auth
+
+
+def test_insufficient_scope_tool_has_security_headers() -> None:
+    client = _create_app(scopes=())
+    result = _post_mcp(
+        client,
+        "tools/call",
+        {"name": "private_tool", "arguments": {}},
+    )
+    assert result["headers"]["x-content-type-options"] == "nosniff"
+    assert result["headers"]["cache-control"] == "no-store"
+    assert "max-age=" in result["headers"]["strict-transport-security"]
+
+
+def test_insufficient_scope_prompt_returns_403() -> None:
+    client = _create_app(scopes=())
+    result = _post_mcp(
+        client,
+        "prompts/get",
+        {"name": "private_prompt", "arguments": {}},
+    )
+    assert result["status"] == HTTPStatus.FORBIDDEN
+
+
+def test_insufficient_scope_prompt_has_www_authenticate_header() -> None:
+    client = _create_app(scopes=())
+    result = _post_mcp(
+        client,
+        "prompts/get",
+        {"name": "private_prompt", "arguments": {}},
+    )
+    assert "www-authenticate" in result["headers"]
+    www_auth = result["headers"]["www-authenticate"]
+    assert "Bearer" in www_auth
+    assert "insufficient_scope" in www_auth

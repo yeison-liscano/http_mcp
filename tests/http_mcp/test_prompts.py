@@ -477,16 +477,8 @@ def test_call_prompt_without_required_scope() -> None:
                 },
             },
         )
-        assert response.status_code == HTTPStatus.OK
-        response_json = response.json()
-        assert response_json == {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": ErrorCode.RESOURCE_NOT_FOUND.value,
-                "message": "Prompt prompt_with_scope not found",
-            },
-        }
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.json() == {"error": "insufficient_scope"}
 
 
 # ---------------------------------------------------------------------------
