@@ -127,3 +127,89 @@ TOOLS = (
         scopes=("private", "superuser"),
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Stateful tools demonstrating realistic state patterns
+# ---------------------------------------------------------------------------
+
+
+class AddNoteInput(BaseModel):
+    topic: str = Field(description="The topic to add a note to")
+    note: str = Field(description="The note content")
+
+
+class AddNoteOutput(BaseModel):
+    notes: list[str] = Field(description="All notes for the topic after adding")
+
+
+async def add_note(args: Arguments[AddNoteInput]) -> AddNoteOutput:
+    """Add a note to a topic."""
+    context = args.get_state_key("context", Context)
+    context.add_note(args.inputs.topic, args.inputs.note)
+    context.increment_request_count()
+    return AddNoteOutput(notes=context.get_notes(args.inputs.topic))
+
+
+class GetNotesInput(BaseModel):
+    topic: str = Field(description="The topic to get notes for")
+
+
+class GetNotesOutput(BaseModel):
+    notes: list[str] = Field(description="All notes for the topic")
+
+
+async def get_notes(args: Arguments[GetNotesInput]) -> GetNotesOutput:
+    """Get all notes for a topic."""
+    context = args.get_state_key("context", Context)
+    return GetNotesOutput(notes=context.get_notes(args.inputs.topic))
+
+
+class SetCacheInput(BaseModel):
+    key: str = Field(description="The cache key")
+    value: str = Field(description="The cache value")
+
+
+class SetCacheOutput(BaseModel):
+    success: bool = Field(description="Whether the cache was set successfully", default=True)
+
+
+async def set_cache(args: Arguments[SetCacheInput]) -> SetCacheOutput:
+    """Set a value in the cache."""
+    context = args.get_state_key("context", Context)
+    context.set_cache(args.inputs.key, args.inputs.value)
+    context.increment_request_count()
+    return SetCacheOutput()
+
+
+class GetCacheInput(BaseModel):
+    key: str = Field(description="The cache key to look up")
+
+
+class GetCacheOutput(BaseModel):
+    value: str | None = Field(description="The cached value, or null if not found")
+
+
+async def get_cache(args: Arguments[GetCacheInput]) -> GetCacheOutput:
+    """Get a value from the cache."""
+    context = args.get_state_key("context", Context)
+    return GetCacheOutput(value=context.get_cache(args.inputs.key))
+
+
+class GetRequestCountOutput(BaseModel):
+    count: int = Field(description="The total number of write requests")
+
+
+async def get_request_count(args: Arguments[NoArguments]) -> GetRequestCountOutput:
+    """Get the total number of write requests processed."""
+    context = args.get_state_key("context", Context)
+    return GetRequestCountOutput(count=context.get_request_count())
+
+
+STATEFUL_TOOLS = (
+    Tool(func=add_note, inputs=AddNoteInput, output=AddNoteOutput),
+    Tool(func=get_notes, inputs=GetNotesInput, output=GetNotesOutput),
+    Tool(func=set_cache, inputs=SetCacheInput, output=SetCacheOutput),
+    Tool(func=get_cache, inputs=GetCacheInput, output=GetCacheOutput),
+    Tool(func=get_request_count, inputs=NoArguments, output=GetRequestCountOutput),
+)

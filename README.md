@@ -273,6 +273,7 @@ with the error details instead of raising a `ToolInvocationError`.
 You can restrict tool access based on authentication scopes:
 
 ```python
+from http_mcp.exceptions import ToolInvocationError
 from http_mcp.types import Arguments, NoArguments, Tool
 from starlette.authentication import has_required_scope
 
@@ -281,12 +282,14 @@ class SecureOutput(BaseModel):
 
 def private_tool(args: Arguments[NoArguments]) -> SecureOutput:
     """A tool that requires authentication."""
-    assert has_required_scope(args.request, ("private",))
+    if not has_required_scope(args.request, ("private",)):
+        raise ToolInvocationError("private_tool", "Insufficient scope")
     return SecureOutput(message="This is private data")
 
 def admin_tool(args: Arguments[NoArguments]) -> SecureOutput:
     """A tool that requires admin or superuser scope."""
-    assert has_required_scope(args.request, ("admin", "superuser"))
+    if not has_required_scope(args.request, ("admin", "superuser")):
+        raise ToolInvocationError("admin_tool", "Insufficient scope")
     return SecureOutput(message="This is admin data")
 
 TOOLS = (
@@ -306,7 +309,11 @@ TOOLS = (
 ```
 
 Note: You need to set up authentication middleware in your Starlette app for
-scopes to work properly.
+scopes to work properly. The `scopes` field on `Tool` is the primary
+authorization gate — the framework filters tools by scope before invocation. The
+`raise ToolInvocationError(...)` calls inside the tool functions above are
+optional defense-in-depth checks that return a proper error response to the
+client instead of silently failing.
 
 ## Server State Management
 
@@ -315,74 +322,179 @@ entire application lifecycle. State is initialized when the application starts
 and persists until it shuts down. Context is accessed through the
 `get_state_key` method on the `Arguments` object.
 
-Example:
+This is useful for sharing resources like database connection pools, HTTP
+clients, caches, or any application state across tools.
 
-1. **Define a context class:**
+### Database Connection Pool
+
+The most common pattern — initialize a connection pool at startup, share it
+across all tools, and close it on shutdown:
 
 ```python
-from dataclasses import dataclass, field
-
 # app/context.py
+from dataclasses import dataclass
+import asyncpg
 
 @dataclass
-class Context:
-    called_tools: list[str] = field(default_factory=list)
-
-    def get_called_tools(self) -> list[str]:
-        return self.called_tools
-
-    def add_called_tool(self, tool_name: str) -> None:
-        self.called_tools.append(tool_name)
+class AppContext:
+    db: asyncpg.Pool
 ```
 
-2. **Set up the application with lifespan:**
-
 ```python
+# app/main.py
 import contextlib
+import os
 from collections.abc import AsyncIterator
 from typing import TypedDict
+import asyncpg
 from starlette.applications import Starlette
-from app.context import Context
 from http_mcp.server import MCPServer
+from app.context import AppContext
 
 class State(TypedDict):
-    context: Context
+    ctx: AppContext
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: Starlette) -> AsyncIterator[State]:
-    yield {"context": Context(called_tools=[])}
+    pool = await asyncpg.create_pool(os.environ["DATABASE_URL"])
+    yield {"ctx": AppContext(db=pool)}
+    await pool.close()
 
-mcp_server = MCPServer(
-    tools=TOOLS,
-    name="test",
-    version="1.0.0",
-)
+mcp_server = MCPServer(tools=TOOLS, name="my-server", version="1.0.0")
 
 app = Starlette(lifespan=lifespan)
 app.mount("/mcp", mcp_server.app)
 ```
 
-3. **Access the context in your tools:**
-
 ```python
+# app/tools.py
 from pydantic import BaseModel, Field
 from http_mcp.types import Arguments
-from app.context import Context
+from app.context import AppContext
 
-class MyToolArguments(BaseModel):
-    question: str = Field(description="The question to answer")
+class GetUserInput(BaseModel):
+    user_id: int = Field(description="The user ID to look up")
 
-class MyToolOutput(BaseModel):
-    answer: str = Field(description="The answer to the question")
+class GetUserOutput(BaseModel):
+    name: str = Field(description="The user's name")
+    email: str = Field(description="The user's email")
 
-async def my_tool(args: Arguments[MyToolArguments]) -> MyToolOutput:
-    # Access the context from lifespan state
-    context = args.get_state_key("context", Context)
-    context.add_called_tool("my_tool")
-    ...
-
-    return MyToolOutput(answer=f"Hello, {args.inputs.question}!")
+async def get_user(args: Arguments[GetUserInput]) -> GetUserOutput:
+    """Look up a user by ID."""
+    ctx = args.get_state_key("ctx", AppContext)
+    row = await ctx.db.fetchrow(
+        "SELECT name, email FROM users WHERE id = $1",
+        args.inputs.user_id,
+    )
+    return GetUserOutput(name=row["name"], email=row["email"])
 ```
+
+### Shared HTTP Client
+
+Share a single `httpx.AsyncClient` across tools to reuse connections and
+configure base URLs, headers, or timeouts once:
+
+```python
+# app/context.py
+from dataclasses import dataclass
+import httpx
+
+@dataclass
+class AppContext:
+    http_client: httpx.AsyncClient
+```
+
+```python
+# app/main.py
+import contextlib
+from collections.abc import AsyncIterator
+from typing import TypedDict
+import httpx
+from starlette.applications import Starlette
+from http_mcp.server import MCPServer
+from app.context import AppContext
+
+class State(TypedDict):
+    ctx: AppContext
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: Starlette) -> AsyncIterator[State]:
+    async with httpx.AsyncClient(
+        base_url="https://api.example.com",
+        headers={"Authorization": "Bearer <token>"},
+    ) as client:
+        yield {"ctx": AppContext(http_client=client)}
+
+mcp_server = MCPServer(tools=TOOLS, name="my-server", version="1.0.0")
+
+app = Starlette(lifespan=lifespan)
+app.mount("/mcp", mcp_server.app)
+```
+
+```python
+# app/tools.py
+from pydantic import BaseModel, Field
+from http_mcp.types import Arguments
+from app.context import AppContext
+
+class SearchInput(BaseModel):
+    query: str = Field(description="The search query")
+
+class SearchOutput(BaseModel):
+    results: list[str] = Field(description="Search result titles")
+
+async def search(args: Arguments[SearchInput]) -> SearchOutput:
+    """Search via an external API."""
+    ctx = args.get_state_key("ctx", AppContext)
+    resp = await ctx.http_client.get("/search", params={"q": args.inputs.query})
+    resp.raise_for_status()
+    return SearchOutput(results=[r["title"] for r in resp.json()["items"]])
+```
+
+### In-Memory Cache
+
+Share mutable state like caches or counters across tool invocations within the
+same server lifecycle:
+
+```python
+# app/context.py
+from dataclasses import dataclass, field
+
+@dataclass
+class AppContext:
+    cache: dict[str, str] = field(default_factory=dict)
+    request_count: int = 0
+```
+
+```python
+# app/tools.py
+from pydantic import BaseModel, Field
+from http_mcp.types import Arguments
+from app.context import AppContext
+
+class LookupInput(BaseModel):
+    key: str = Field(description="The cache key to look up")
+
+class LookupOutput(BaseModel):
+    value: str | None = Field(description="The cached value, or null if not found")
+    total_requests: int = Field(description="Total requests served")
+
+async def lookup(args: Arguments[LookupInput]) -> LookupOutput:
+    """Look up a value in the cache."""
+    ctx = args.get_state_key("ctx", AppContext)
+    ctx.request_count += 1
+    return LookupOutput(
+        value=ctx.cache.get(args.inputs.key),
+        total_requests=ctx.request_count,
+    )
+```
+
+All tools sharing the same `AppContext` instance see each other's writes
+immediately, since the lifespan yields a single shared object.
+
+Note: Plain `dict` and `int` are not thread-safe. If your tools run concurrently
+(e.g., sync tools dispatched via threads), protect shared mutable state with an
+`asyncio.Lock` or use thread-safe data structures.
 
 ## Request Access
 
@@ -628,6 +740,7 @@ that communicate through standard input/output.
 
 ```python
 import asyncio
+import os
 from http_mcp.server import MCPServer
 from app.tools import TOOLS
 from app.prompts import PROMPTS
@@ -642,7 +755,7 @@ mcp_server = MCPServer(
 # Run the server with STDIO transport
 async def main() -> None:
     request_headers = {
-        "Authorization": "Bearer your-token-here",
+        "Authorization": f"Bearer {os.getenv('MCP_TOKEN', '')}",
         "X-Custom-Header": "value",
     }
     await mcp_server.serve_stdio(request_headers)
