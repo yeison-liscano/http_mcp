@@ -5,11 +5,9 @@ maintainers = [{ name = "Yeison Liscano" }]
 classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14"
 ]
 keywords = ["mcp", "llm", "automation", "http"]
 description = "This is a HTTP implementation of the MCP protocol"
