@@ -93,19 +93,53 @@ def run_stdio() -> None:
     }
     asyncio.run(mcp_server.serve_stdio(request_headers), debug=True)
 
+
 app = Starlette(
-        lifespan=lifespan,
-        middleware=[
-            Middleware(
-                AuthenticationMiddleware,
-                backend=BasicAuthBackend(granted_scopes=("private",)),
-            ),
-        ],
-    )
+    lifespan=lifespan,
+    middleware=[
+        Middleware(
+            AuthenticationMiddleware,
+            backend=BasicAuthBackend(granted_scopes=("private",)),
+        ),
+    ],
+)
 app.mount(
     "/mcp",
     mcp_server.app,
 )
+
+
+class MultiState(TypedDict):
+    context: Context
+    secondary_context: Context
+
+
+@contextlib.asynccontextmanager
+async def multi_state_lifespan(_app: Starlette) -> AsyncIterator[MultiState]:
+    yield {
+        "context": Context(),
+        "secondary_context": Context(),
+    }
+
+
+def mount_mcp_server_multi_state(
+    server: MCPServer,
+    authentication_backend: AuthenticationBackend | None = None,
+) -> Starlette:
+    app = Starlette(
+        lifespan=multi_state_lifespan,
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=authentication_backend,
+            ),
+        ]
+        if authentication_backend
+        else None,
+    )
+    app.mount("/mcp", server.app)
+    return app
+
 
 if __name__ == "__main__":
     run_http()

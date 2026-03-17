@@ -1,11 +1,13 @@
+import logging
 from dataclasses import dataclass
-from typing import cast
 
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp.exceptions import ServerError
+
+LOGGER = logging.getLogger(__name__)
 
 
 class NoArguments(BaseModel):
@@ -29,7 +31,18 @@ class Arguments[TInputs: BaseModel | None]:
             )
             raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=message))
 
-        return cast("TKey", self.request.state.__getattr__(key))
+        value = self.request.state.__getattr__(key)
+        if not isinstance(value, _object_type):
+            LOGGER.error(
+                "State key '%s' type mismatch: got %s, expected %s",
+                key,
+                type(value).__name__,
+                _object_type.__name__,
+            )
+            message = f"State key '{key}' type mismatch: expected type does not match stored type"
+            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=message))
+
+        return value
 
 
 class ErrorMessage(BaseModel):
