@@ -1,7 +1,7 @@
 [project]
 name = "http-mcp"
-authors = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
-maintainers = [{ name = "Yeison Liscano", email = "yliscanoc@gmail.com" }]
+authors = [{ name = "Yeison Liscano" }]
+maintainers = [{ name = "Yeison Liscano" }]
 classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
