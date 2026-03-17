@@ -7,7 +7,7 @@ from http_mcp._mcp_types.capabilities import Capability, ServerCapabilities
 from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
 from http_mcp._stdio_transport import StdioTransport
 from http_mcp._transport_http import HTTPTransport
-from http_mcp.exceptions import PromptNotFoundError, ToolNotFoundError
+from http_mcp.exceptions import InsufficientScopeError, PromptNotFoundError, ToolNotFoundError
 from http_mcp.server_interface import ServerInterface
 from http_mcp.types import Prompt, Tool
 
@@ -73,7 +73,7 @@ class MCPServer(ServerInterface):
         except StopIteration as e:
             raise ToolNotFoundError(tool_name) from e
         if not has_required_scope(request, tool.scopes):
-            raise ToolNotFoundError(tool_name)
+            raise InsufficientScopeError(tool.scopes)
 
         return await tool.invoke(args, request)
 
@@ -98,7 +98,7 @@ class MCPServer(ServerInterface):
         except StopIteration as e:
             raise PromptNotFoundError(prompt_name) from e
         if not has_required_scope(request, _prompt.scopes):
-            raise PromptNotFoundError(prompt_name)
+            raise InsufficientScopeError(_prompt.scopes)
 
         result = await _prompt.invoke(arguments, request)
         return PromptGetResult(

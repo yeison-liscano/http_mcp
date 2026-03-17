@@ -14,6 +14,7 @@ from http_mcp._json_rcp_types.messages import (
     JSONRPCRequest,
 )
 from http_mcp._transport_base import BaseTransport
+from http_mcp.exceptions import InsufficientScopeError
 from http_mcp.server_interface import ServerInterface
 from http_mcp.types.utils import sanitize_validation_errors
 
@@ -145,7 +146,18 @@ class StdioTransport(BaseTransport):
             if msg.method.startswith("notifications/"):
                 return None
 
-            return await self._process_request(msg, dummy_request)
+            try:
+                return await self._process_request(msg, dummy_request)
+            except InsufficientScopeError as e:
+                required = " ".join(e.required_scopes) if e.required_scopes else "unknown"
+                return JSONRPCError(
+                    jsonrpc="2.0",
+                    id=msg.id,
+                    error=Error(
+                        code=ErrorCode.RESOURCE_NOT_FOUND,
+                        description=f"Insufficient scope; required: {required}",
+                    ),
+                )
 
         response = await process(message)
         if response:

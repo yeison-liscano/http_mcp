@@ -13,6 +13,7 @@ from http_mcp._json_rcp_types.messages import (
 )
 from http_mcp._transport_base import BaseTransport
 from http_mcp._transport_types import ErrorResponseInfo
+from http_mcp.exceptions import InsufficientScopeError
 from http_mcp.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
@@ -133,7 +134,11 @@ class HTTPTransport(BaseTransport):
         send: Send,
         request: Request,
     ) -> None:
-        response = await self._process_request(message, request)
+        try:
+            response = await self._process_request(message, request)
+        except InsufficientScopeError:
+            await self._send_forbidden_response(send)
+            return
 
         await send(
             {
@@ -150,6 +155,25 @@ class HTTPTransport(BaseTransport):
             {
                 "type": "http.response.body",
                 "body": response.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8"),
+                "more_body": False,
+            },
+        )
+
+    async def _send_forbidden_response(self, send: Send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTPStatus.FORBIDDEN.value,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    *_SECURITY_HEADERS,
+                ],
+            },
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"error":"insufficient_scope"}',
                 "more_body": False,
             },
         )
