@@ -1,0 +1,91 @@
+name: Create Historical Releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create missing tags and releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Versions that need a new tag AND a new release (tag does not exist yet)
+          declare -A MISSING_TAGS=(
+            ["v0.4.0"]="4275210c3863122bb728e63bfc4c217a9a85082a"
+            ["v0.4.1"]="d42034daf42e35536d884eed7284a814044d94e4"
+            ["v0.4.2"]="d6ed57ba6397f4e263459633590d892032213fb7"
+            ["v0.4.3"]="bc8ab2c0cb224e98ea173d841bf89d1690e16792"
+            ["v0.5.0"]="e6153d7f2c6a71232bdd18547b03462a48c16162"
+            ["v0.5.1"]="0b36748a52db4e2b24ec3986e2db57c639c456c7"
+            ["v0.6.0"]="90cbeea615aa2e737eaf7ec5108d250c6f63118b"
+            ["v0.6.1"]="96aa1ad627659b45ec392d803159b090ee22b3e6"
+            ["v0.6.2"]="a26e6d2a1283b3dec94bf3683a44eace749cd3cb"
+            ["v0.7.0"]="5c824c65090eda45043da846971ec54855e85117"
+          )
+
+          # Versions that already have a tag but are missing a GitHub Release
+          MISSING_RELEASES=(
+            "v0.8.0"
+            "v0.8.1"
+            "v0.8.2"
+            "v0.9.0"
+            "v0.10.0"
+            "v0.10.1"
+            "v0.11.0"
+            "v0.11.1"
+          )
+
+          # Step 1: Create missing tags then create their releases
+          for tag in $(echo "${!MISSING_TAGS[@]}" | tr ' ' '\n' | sort -V); do
+            sha="${MISSING_TAGS[$tag]}"
+            version="${tag#v}"
+
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "Tag $tag already exists, skipping tag creation"
+            else
+              echo "Creating tag $tag at $sha"
+              git tag -a "$tag" "$sha" -m "Release version $version"
+              git push origin "$tag"
+            fi
+
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag already exists, skipping release creation"
+            else
+              echo "Creating GitHub Release $tag"
+              gh release create "$tag" \
+                --title "Release $version" \
+                --notes "Release $version" \
+                --target "$sha"
+            fi
+          done
+
+          # Step 2: Create releases for tags that already exist
+          for tag in "${MISSING_RELEASES[@]}"; do
+            version="${tag#v}"
+
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag already exists, skipping"
+            else
+              sha=$(git rev-list -n 1 "$tag")
+              echo "Creating GitHub Release $tag at $sha"
+              gh release create "$tag" \
+                --title "Release $version" \
+                --notes "Release $version" \
+                --target "$sha"
+            fi
+          done
