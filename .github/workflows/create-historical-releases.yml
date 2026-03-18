@@ -15,11 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Create missing tags and releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,8 +54,14 @@ jobs:
               echo "Tag $tag already exists, skipping tag creation"
             else
               echo "Creating tag $tag at $sha"
-              git tag -a "$tag" "$sha" -m "Release version $version"
-              git push origin "$tag"
+              # Use the REST API to create the ref directly instead of `git push`,
+              # because git push is rejected for commits that touch .github/workflows/
+              # even with contents:write — the GITHUB_TOKEN cannot be granted the
+              # workflows permission via the permissions block (GitHub rejects it).
+              gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+                --method POST \
+                -f "ref=refs/tags/$tag" \
+                -f "sha=$sha"
             fi
 
             if gh release view "$tag" >/dev/null 2>&1; then
