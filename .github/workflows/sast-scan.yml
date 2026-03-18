@@ -1,5 +1,7 @@
 name: SAST Security Scan
-on: [push]
+on:
+  push:
+    branches-ignore: [main]
 
 jobs:
   sast-scan:
