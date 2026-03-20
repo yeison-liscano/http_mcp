@@ -67,7 +67,11 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
                 raise AuthenticationError(_MALFORMED_TOKEN_MSG)
             return AuthCredentials(), UnauthenticatedUser()
 
-        token_info = await self._token_validator.validate_token(token, self._resource_uri)
+        try:
+            token_info = await self._token_validator.validate_token(token, self._resource_uri)
+        except Exception:
+            LOGGER.exception("Token validation raised an unexpected error")
+            token_info = None
         if token_info is None:
             LOGGER.debug("Token validation failed")
             if self._require_authentication:

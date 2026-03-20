@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -8,9 +11,13 @@ from starlette.routing import Route
 from auth_mcp.resource_server.authentication_backend import OAuthAuthenticationBackend
 from auth_mcp.resource_server.metadata_endpoint import ProtectedResourceMetadataEndpoint
 from auth_mcp.resource_server.middleware import AuthErrorMiddleware, on_auth_error
-from auth_mcp.resource_server.token_validator import TokenValidator
 from auth_mcp.types.metadata import ProtectedResourceMetadata
-from http_mcp.server import MCPServer
+
+if TYPE_CHECKING:
+    from auth_mcp.authorization_server.client_store import ClientStore
+    from auth_mcp.resource_server.token_validator import TokenValidator
+    from auth_mcp.types.metadata import AuthorizationServerMetadata
+    from http_mcp.server import MCPServer
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,8 @@ class ProtectedMCPAppConfig:
     realm: str | None = None
     require_authentication: bool = True
     cors: CORSConfig | None = None
+    authorization_server_metadata: AuthorizationServerMetadata | None = None
+    client_store: ClientStore | None = None
     extra_middleware: tuple[Middleware, ...] = field(default_factory=tuple)
 
 
@@ -104,13 +113,38 @@ def create_protected_mcp_app(
         *config.extra_middleware,
     ])
 
-    app = Starlette(
-        routes=[
+    routes: list[Route] = [
+        Route(
+            "/.well-known/oauth-protected-resource",
+            metadata_endpoint,
+        ),
+    ]
+
+    if config.authorization_server_metadata is not None:
+        from auth_mcp.authorization_server.metadata_endpoint import (  # noqa: PLC0415
+            AuthorizationServerMetadataEndpoint,
+        )
+
+        as_metadata_endpoint = AuthorizationServerMetadataEndpoint(
+            config.authorization_server_metadata,
+        )
+        routes.append(
             Route(
-                "/.well-known/oauth-protected-resource",
-                metadata_endpoint,
+                "/.well-known/oauth-authorization-server",
+                as_metadata_endpoint,
             ),
-        ],
+        )
+
+    if config.client_store is not None:
+        from auth_mcp.authorization_server.registration_endpoint import (  # noqa: PLC0415
+            DynamicClientRegistrationEndpoint,
+        )
+
+        registration_endpoint = DynamicClientRegistrationEndpoint(config.client_store)
+        routes.append(Route("/register", registration_endpoint))
+
+    app = Starlette(
+        routes=routes,
         middleware=middleware,
         **starlette_kwargs,  # type: ignore[arg-type]
     )
