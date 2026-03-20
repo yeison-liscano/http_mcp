@@ -32,7 +32,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Run mdformat
-        run: uv run mdformat README.md --check --wrap 80
+        run: uv run mdformat README.md --check --wrap 80 --exclude .claude/
 
 name: dev
 on:
