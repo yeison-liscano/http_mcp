@@ -1,7 +1,7 @@
 # auth_mcp — OAuth 2.1 Authorization for MCP Servers
 
-`auth_mcp` adds OAuth 2.1 authorization to MCP servers built with `http-mcp`.
-It ships in the same wheel and is available via `pip install http-mcp[auth]`.
+`auth_mcp` adds OAuth 2.1 authorization to MCP servers built with `http-mcp`. It
+ships in the same wheel and is available via `pip install http-mcp[auth]`.
 
 The package is organized into three areas: **types** (Pydantic models for the
 OAuth/MCP authorization protocol), **resource_server** (protecting your MCP
@@ -31,21 +31,20 @@ src/auth_mcp/
     └── registration_endpoint.py       # DynamicClientRegistrationEndpoint (RFC 7591)
 ```
 
----
+______________________________________________________________________
 
 ## Exceptions (`auth_mcp.exceptions`)
 
 All exceptions inherit from `AuthError`, which carries a `.message` attribute.
 
-| Exception                | When raised                                    |
-| ------------------------ | ---------------------------------------------- |
-| `TokenValidationError`   | Token is invalid, expired, or wrong audience   |
-| `InsufficientScopeError` | Token lacks required scopes (carries `.required_scopes`) |
-| `DiscoveryError`         | Authorization server discovery failed          |
-| `RegistrationError`      | Dynamic Client Registration rejected           |
-| `PKCEError`              | PKCE verification failed                       |
+| Exception | When raised | | ------------------------ |
+---------------------------------------------- | | `TokenValidationError` |
+Token is invalid, expired, or wrong audience | | `InsufficientScopeError` |
+Token lacks required scopes (carries `.required_scopes`) | | `DiscoveryError` |
+Authorization server discovery failed | | `RegistrationError` | Dynamic Client
+Registration rejected | | `PKCEError` | PKCE verification failed |
 
----
+______________________________________________________________________
 
 ## Types (`auth_mcp.types`)
 
@@ -72,9 +71,9 @@ endpoints and capabilities. Key fields:
 
 ### `oauth.py`
 
-- **`TokenRequest`** — `grant_type` is `Literal["authorization_code",
-  "refresh_token"]`, plus fields for `code`, `redirect_uri`, `code_verifier`,
-  `refresh_token`, `client_id`, and `resource`.
+- **`TokenRequest`** — `grant_type` is
+  `Literal["authorization_code", "refresh_token"]`, plus fields for `code`,
+  `redirect_uri`, `code_verifier`, `refresh_token`, `client_id`, and `resource`.
 - **`TokenResponse`** — `access_token`, `token_type` (default `"Bearer"`),
   `expires_in`, optional `refresh_token` and `scope`.
 - **`AuthorizationRequest`** — PKCE-required authorization request with
@@ -82,13 +81,12 @@ endpoints and capabilities. Key fields:
 
 ### `registration.py`
 
-- **`ClientRegistrationRequest`** (RFC 7591) — `redirect_uris` (validated:
-  HTTPS required, HTTP only for `localhost`/`127.0.0.1`/`::1`),
-  `client_name`, `grant_types`, `response_types`,
-  `token_endpoint_auth_method`.
+- **`ClientRegistrationRequest`** (RFC 7591) — `redirect_uris` (validated: HTTPS
+  required, HTTP only for `localhost`/`127.0.0.1`/`::1`), `client_name`,
+  `grant_types`, `response_types`, `token_endpoint_auth_method`.
 - **`ClientRegistrationResponse`** — `client_id` (required), optional
-  `client_secret`, `client_id_issued_at`, `client_secret_expires_at`, plus
-  the echo-back fields from the request.
+  `client_secret`, `client_id_issued_at`, `client_secret_expires_at`, plus the
+  echo-back fields from the request.
 
 ### `errors.py`
 
@@ -96,15 +94,15 @@ endpoints and capabilities. Key fields:
   `error_description`, `error_uri`).
 - **`WWWAuthenticateChallenge`** — builds a `WWW-Authenticate: Bearer` header
   value with parameters (`realm`, `resource_metadata`, `scope`, `error`,
-  `error_description`). All values are sanitized against header injection
-  (CR/LF stripped, backslash and double-quote escaped).
+  `error_description`). All values are sanitized against header injection (CR/LF
+  stripped, backslash and double-quote escaped).
 
----
+______________________________________________________________________
 
 ## Resource Server (`auth_mcp.resource_server`)
 
-Protects your MCP server with OAuth 2.1 bearer token validation. This is
-**Phase 1** of the auth implementation.
+Protects your MCP server with OAuth 2.1 bearer token validation. This is **Phase
+1** of the auth implementation.
 
 ### TokenValidator and TokenInfo
 
@@ -130,14 +128,14 @@ A Starlette `AuthenticationBackend` that extracts the Bearer token from the
 `Authorization` header, validates token format (RFC 6750: max 2048 chars,
 alphanumeric + URL-safe characters), and delegates to your `TokenValidator`.
 
-When `require_authentication=True` (default), missing or invalid tokens cause
-a 401 response. When `False`, unauthenticated requests pass through with empty
+When `require_authentication=True` (default), missing or invalid tokens cause a
+401 response. When `False`, unauthenticated requests pass through with empty
 credentials — tools/prompts without scope requirements remain accessible.
 
 ### ProtectedResourceMetadataEndpoint
 
-ASGI handler serving `/.well-known/oauth-protected-resource` (RFC 9728).
-Returns the `ProtectedResourceMetadata` JSON document with security headers
+ASGI handler serving `/.well-known/oauth-protected-resource` (RFC 9728). Returns
+the `ProtectedResourceMetadata` JSON document with security headers
 (`X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, HSTS).
 
 ### AuthErrorMiddleware
@@ -145,7 +143,7 @@ Returns the `ProtectedResourceMetadata` JSON document with security headers
 ASGI middleware that:
 
 1. Adds security headers to all HTTP responses.
-2. On 401/403 responses, injects a `WWW-Authenticate` header with
+1. On 401/403 responses, injects a `WWW-Authenticate` header with
    `resource_metadata` discovery parameter per RFC 9728.
 
 ### Integration Helper
@@ -175,9 +173,10 @@ This gives you:
 - Bearer token validation on all requests
 - `/.well-known/oauth-protected-resource` metadata endpoint
 - Security headers and `WWW-Authenticate` on 401/403
-- Optional CORS via `cors=CORSConfig(allow_origins=("https://client.example.com",))`
+- Optional CORS via
+  `cors=CORSConfig(allow_origins=("https://client.example.com",))`
 
----
+______________________________________________________________________
 
 ## Authorization Server (`auth_mcp.authorization_server`)
 
@@ -187,8 +186,8 @@ This is **Phase 2** of the auth implementation.
 ### ClientStore
 
 Abstract base class for persisting registered clients. You implement
-`register_client(request) -> ClientRegistrationResponse` with your storage
-logic (database, in-memory, etc.).
+`register_client(request) -> ClientRegistrationResponse` with your storage logic
+(database, in-memory, etc.).
 
 ```python
 from auth_mcp.authorization_server import ClientStore
@@ -209,9 +208,8 @@ class MyClientStore(ClientStore):
         )
 ```
 
-An optional `get_client(client_id) -> ClientRegistrationResponse | None`
-method defaults to `None` and can be overridden for RFC 7592 client
-management support.
+An optional `get_client(client_id) -> ClientRegistrationResponse | None` method
+defaults to `None` and can be overridden for RFC 7592 client management support.
 
 Security considerations:
 
@@ -268,10 +266,10 @@ app = create_protected_mcp_app(config)
 
 When `authorization_server_metadata` is set, the app serves
 `/.well-known/oauth-authorization-server`. When `client_store` is set, the app
-serves `/register`. Both are optional and independent — you can enable either
-or both.
+serves `/register`. Both are optional and independent — you can enable either or
+both.
 
----
+______________________________________________________________________
 
 ## Full MCP Client Discovery Flow
 
@@ -280,22 +278,22 @@ The MCP spec defines a discovery flow that these components support end-to-end:
 1. **Client connects** to the MCP server and gets a 401 with
    `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"`.
 
-2. **Client fetches** `/.well-known/oauth-protected-resource` and learns which
+1. **Client fetches** `/.well-known/oauth-protected-resource` and learns which
    authorization servers to use.
 
-3. **Client fetches** `/.well-known/oauth-authorization-server` from the
+1. **Client fetches** `/.well-known/oauth-authorization-server` from the
    authorization server and discovers the `registration_endpoint`,
    `authorization_endpoint`, and `token_endpoint`.
 
-4. **Client registers** via POST to `/register` (Dynamic Client Registration)
+1. **Client registers** via POST to `/register` (Dynamic Client Registration)
    and receives a `client_id`.
 
-5. **Client performs** the OAuth 2.1 authorization code flow with PKCE using the
+1. **Client performs** the OAuth 2.1 authorization code flow with PKCE using the
    discovered endpoints and its new `client_id`.
 
-6. **Client presents** the access token in subsequent MCP requests.
+1. **Client presents** the access token in subsequent MCP requests.
 
----
+______________________________________________________________________
 
 ## Test Structure
 

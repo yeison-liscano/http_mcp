@@ -28,8 +28,8 @@ account or manage API keys — their existing login should carry over.
 
 - **MCP Client** — the tool the user runs (Claude Desktop, Cursor, etc.). It
   speaks the MCP protocol and needs an access token to call the MCP server.
-- **MCP Server** — your `http-mcp` server with `auth_mcp`. It exposes tools
-  that read/write data from the web app. It validates tokens on every request.
+- **MCP Server** — your `http-mcp` server with `auth_mcp`. It exposes tools that
+  read/write data from the web app. It validates tokens on every request.
 - **Web App** — the existing application. It already has OAuth/OIDC login with
   Google, Azure AD, or Bitbucket. It may also serve as (or sit behind) the
   authorization server that issues tokens.
@@ -38,8 +38,8 @@ account or manage API keys — their existing login should carry over.
 
 ### Step 1: User Configures the MCP Server in Their Client
 
-The user adds the MCP server URL to their MCP client configuration. For
-example, in Claude Desktop's `claude_desktop_config.json`:
+The user adds the MCP server URL to their MCP client configuration. For example,
+in Claude Desktop's `claude_desktop_config.json`:
 
 ```json
 {
@@ -51,8 +51,8 @@ example, in Claude Desktop's `claude_desktop_config.json`:
 }
 ```
 
-No client ID, no API key — just the URL. The MCP client will discover
-everything else automatically.
+No client ID, no API key — just the URL. The MCP client will discover everything
+else automatically.
 
 ### Step 2: MCP Client Discovers the Auth Flow
 
@@ -84,8 +84,8 @@ MCP Client                          MCP Server
     │                                    │
 ```
 
-The MCP client now knows to talk to `https://auth.myapp.com` for
-authorization. It fetches the authorization server metadata:
+The MCP client now knows to talk to `https://auth.myapp.com` for authorization.
+It fetches the authorization server metadata:
 
 ```
 MCP Client                          MCP Server (or Auth Server)
@@ -138,15 +138,15 @@ MCP Client                          MCP Server
     │                                    │
 ```
 
-Note the `redirect_uris` uses `http://localhost:...` — MCP clients are
-typically desktop apps that spin up a temporary local HTTP server to receive
-the OAuth callback. The `auth_mcp` registration types allow HTTP for
-localhost specifically for this reason.
+Note the `redirect_uris` uses `http://localhost:...` — MCP clients are typically
+desktop apps that spin up a temporary local HTTP server to receive the OAuth
+callback. The `auth_mcp` registration types allow HTTP for localhost
+specifically for this reason.
 
 ### Step 4: User Logs In (the Only Part the User Sees)
 
-The MCP client opens the user's browser to the authorization endpoint. This
-is where the three identity provider options come in:
+The MCP client opens the user's browser to the authorization endpoint. This is
+where the three identity provider options come in:
 
 ```
 MCP Client                Browser                    Auth Server
@@ -214,8 +214,8 @@ MCP Client                          Auth Server
 
 ### Step 6: MCP Client Uses the Token
 
-From now on, the MCP client includes the access token in every request. The
-MCP server validates it and scopes the response to what the user can see:
+From now on, the MCP client includes the access token in every request. The MCP
+server validates it and scopes the response to what the user can see:
 
 ```
 MCP Client                          MCP Server
@@ -248,14 +248,14 @@ MCP Client                          MCP Server
 
 ## Architecture Options
 
-There are two ways to set this up depending on whether your web app already
-has a full OAuth authorization server or not.
+There are two ways to set this up depending on whether your web app already has
+a full OAuth authorization server or not.
 
 ### Option A: Web App as Both Auth Server and Resource
 
-Your web app already issues tokens (e.g. it runs an OAuth provider like
-Django OAuth Toolkit, Auth0 tenant, or Keycloak). The MCP server is a
-separate service that validates those same tokens.
+Your web app already issues tokens (e.g. it runs an OAuth provider like Django
+OAuth Toolkit, Auth0 tenant, or Keycloak). The MCP server is a separate service
+that validates those same tokens.
 
 ```
                  ┌─────────────────────────┐
@@ -279,11 +279,11 @@ separate service that validates those same tokens.
                  └──────────────────────────┘
 ```
 
-In this setup, the MCP server's `TokenValidator` validates JWTs issued by
-the web app's auth server (checking the signature with the auth server's
-public keys). The MCP server and web app share the same database or the
-MCP server calls the web app's internal APIs to fetch data on behalf of
-the authenticated user.
+In this setup, the MCP server's `TokenValidator` validates JWTs issued by the
+web app's auth server (checking the signature with the auth server's public
+keys). The MCP server and web app share the same database or the MCP server
+calls the web app's internal APIs to fetch data on behalf of the authenticated
+user.
 
 ### Option B: MCP Server as Its Own Auth Server (Proxy Pattern)
 
@@ -313,34 +313,41 @@ server itself, proxying the identity provider login.
                     └───────────────────────────┘
 ```
 
-In this setup, the MCP server handles the full OAuth flow. When the user
-hits `/authorize`, the MCP server redirects to the chosen identity provider
-(Google, Azure AD, or Bitbucket). After the user authenticates there, the
-provider redirects back to the MCP server, which issues its own access
-token (a JWT signed with its own key). The `TokenValidator` then validates
-these self-issued tokens.
+In this setup, the MCP server handles the full OAuth flow. When the user hits
+`/authorize`, the MCP server redirects to the chosen identity provider (Google,
+Azure AD, or Bitbucket). After the user authenticates there, the provider
+redirects back to the MCP server, which issues its own access token (a JWT
+signed with its own key). The `TokenValidator` then validates these self-issued
+tokens.
 
 This is the more self-contained option — the MCP server is both the
 authorization server and the resource server.
 
 ## What `auth_mcp` Handles vs. What You Build
 
-| Component | `auth_mcp` provides | You implement |
-| --- | --- | --- |
-| Token validation on MCP requests | `TokenValidator` abstract class, `OAuthAuthenticationBackend`, `AuthErrorMiddleware` | `TokenValidator` subclass (JWT decode, signature check, introspection call) |
-| Protected resource discovery | `ProtectedResourceMetadataEndpoint` | Configuration only |
-| AS metadata discovery | `AuthorizationServerMetadataEndpoint` | Configuration only |
-| Dynamic Client Registration | `DynamicClientRegistrationEndpoint`, `ClientStore` abstract class | `ClientStore` subclass (database persistence, ID generation) |
-| `/authorize` endpoint | Types (`AuthorizationRequest`) | The endpoint itself: render login page, federate to Google/Azure/Bitbucket, issue authorization code |
-| `/token` endpoint | Types (`TokenRequest`, `TokenResponse`) | The endpoint itself: validate authorization code, verify PKCE, issue access + refresh tokens |
-| Identity provider federation | Nothing (out of scope) | OIDC integration with Google/Azure/Bitbucket (e.g. via `authlib`, `python-social-auth`) |
-| Scope enforcement per tool | Built into `http_mcp` (`Tool(scopes=(...))`) | Define which scopes each tool requires |
-| User-to-data authorization | Nothing (app-specific) | Map the token's `subject` to the user's data in your app |
+| Component | `auth_mcp` provides | You implement | | --- | --- | --- | | Token
+validation on MCP requests | `TokenValidator` abstract class,
+`OAuthAuthenticationBackend`, `AuthErrorMiddleware` | `TokenValidator` subclass
+(JWT decode, signature check, introspection call) | | Protected resource
+discovery | `ProtectedResourceMetadataEndpoint` | Configuration only | | AS
+metadata discovery | `AuthorizationServerMetadataEndpoint` | Configuration only
+| | Dynamic Client Registration | `DynamicClientRegistrationEndpoint`,
+`ClientStore` abstract class | `ClientStore` subclass (database persistence, ID
+generation) | | `/authorize` endpoint | Types (`AuthorizationRequest`) | The
+endpoint itself: render login page, federate to Google/Azure/Bitbucket, issue
+authorization code | | `/token` endpoint | Types (`TokenRequest`,
+`TokenResponse`) | The endpoint itself: validate authorization code, verify
+PKCE, issue access + refresh tokens | | Identity provider federation | Nothing
+(out of scope) | OIDC integration with Google/Azure/Bitbucket (e.g. via
+`authlib`, `python-social-auth`) | | Scope enforcement per tool | Built into
+`http_mcp` (`Tool(scopes=(...))`) | Define which scopes each tool requires | |
+User-to-data authorization | Nothing (app-specific) | Map the token's `subject`
+to the user's data in your app |
 
 ## Implementation Example (Option B)
 
-Here is a sketch of how you would wire this up with `auth_mcp` for a web
-app that uses Google, Azure AD, and Bitbucket for login.
+Here is a sketch of how you would wire this up with `auth_mcp` for a web app
+that uses Google, Azure AD, and Bitbucket for login.
 
 ### 1. Define Your Tools
 
@@ -527,16 +534,16 @@ async def token_endpoint(request):
 
 - OIDC discovery: `https://accounts.google.com/.well-known/openid-configuration`
 - Provides `email`, `name`, `picture` in the ID token.
-- Use the Google user's `sub` claim as the stable user identifier — email
-  can change.
+- Use the Google user's `sub` claim as the stable user identifier — email can
+  change.
 
 ### Azure AD
 
 - OIDC discovery:
   `https://login.microsoftonline.com/{tenant-id}/v2.0/.well-known/openid-configuration`
 - Supports single-tenant and multi-tenant configurations.
-- Provides `oid` (object ID) as stable identifier. `preferred_username` is
-  the UPN.
+- Provides `oid` (object ID) as stable identifier. `preferred_username` is the
+  UPN.
 - Can map Azure AD groups to MCP scopes for fine-grained access control.
 
 ### Bitbucket
@@ -544,24 +551,24 @@ async def token_endpoint(request):
 - OAuth 2.0 (not full OIDC). Authorization endpoint:
   `https://bitbucket.org/site/oauth2/authorize`
 - Token endpoint: `https://bitbucket.org/site/oauth2/access_token`
-- Use the Bitbucket user API (`/2.0/user`) to get the user's UUID after
-  token exchange.
+- Use the Bitbucket user API (`/2.0/user`) to get the user's UUID after token
+  exchange.
 - Bitbucket tokens are shorter-lived — consider using refresh tokens.
 
 ## Security Considerations
 
-- **Token scoping**: Map identity provider claims to MCP scopes. A user
-  who can only read in the web app should get `read` scope, not `write`.
-- **Token lifetime**: Keep access tokens short-lived (5-15 minutes) and
-  use refresh tokens for longer sessions. MCP clients handle token refresh
+- **Token scoping**: Map identity provider claims to MCP scopes. A user who can
+  only read in the web app should get `read` scope, not `write`.
+- **Token lifetime**: Keep access tokens short-lived (5-15 minutes) and use
+  refresh tokens for longer sessions. MCP clients handle token refresh
   automatically.
-- **PKCE is mandatory**: `auth_mcp` enforces `S256` code challenge method.
-  This prevents authorization code interception attacks, which is critical
-  for desktop MCP clients using localhost redirects.
+- **PKCE is mandatory**: `auth_mcp` enforces `S256` code challenge method. This
+  prevents authorization code interception attacks, which is critical for
+  desktop MCP clients using localhost redirects.
 - **Redirect URI validation**: Only `http://localhost:*` is allowed for HTTP
   redirects. All other redirect URIs must be HTTPS. This is enforced by
   `ClientRegistrationRequest` validation.
 - **User data isolation**: Your tools must filter data based on the
   authenticated user's identity from `TokenInfo.subject`. The MCP server
-  validates the token, but your tool code is responsible for only returning
-  data the user is authorized to see.
+  validates the token, but your tool code is responsible for only returning data
+  the user is authorized to see.
