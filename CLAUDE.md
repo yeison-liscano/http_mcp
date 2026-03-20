@@ -85,7 +85,9 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
 
 - **`exceptions.py`** — `AuthError` hierarchy: `TokenValidationError`,
   `InsufficientScopeError`, `DiscoveryError`, `RegistrationError`, `PKCEError`.
+
 - **`types/`** — Pydantic models (all frozen, URI-validated):
+
   - `metadata.py` — `ProtectedResourceMetadata` (RFC 9728),
     `AuthorizationServerMetadata` (RFC 8414). URI fields use `AnyHttpUrl`;
     issuer enforces HTTPS.
@@ -96,7 +98,9 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
     HTTPS required, HTTP only for localhost), `ClientRegistrationResponse`.
   - `errors.py` — `OAuthErrorResponse`, `WWWAuthenticateChallenge` (header
     values sanitized against injection).
+
 - **`resource_server/`** — Resource Server components:
+
   - `token_validator.py` — Abstract `TokenValidator` + `TokenInfo` model.
   - `authentication_backend.py` — `OAuthAuthenticationBackend` (Starlette
     backend, `require_authentication=True` by default, token format/length
@@ -109,6 +113,7 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
     `create_protected_mcp_app()`.
 
 - **`authorization_server/`** — Authorization Server components (Phase 2):
+
   - `client_store.py` — Abstract `ClientStore` for Dynamic Client Registration
     (RFC 7591). Implementations persist registered clients.
   - `metadata_endpoint.py` — `AuthorizationServerMetadataEndpoint` ASGI handler

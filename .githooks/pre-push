@@ -1,4 +1,4 @@
 : && ruff check \
 && mypy . \
 && pytest --cov-report term-missing --cov=src --cov-fail-under=90 tests/ \
-&& mdformat . --wrap 80 --exclude .claude/
+&& mdformat README.md docs/ --wrap 80 --exclude .claude/
