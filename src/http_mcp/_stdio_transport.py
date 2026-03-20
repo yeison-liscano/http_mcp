@@ -158,6 +158,16 @@ class StdioTransport(BaseTransport):
                         description=f"Insufficient scope; required: {required}",
                     ),
                 )
+            except Exception:
+                LOGGER.exception("Unexpected error processing STDIO request")
+                return JSONRPCError(
+                    jsonrpc="2.0",
+                    id=msg.id,
+                    error=Error(
+                        code=ErrorCode.INTERNAL_ERROR,
+                        description="Internal server error",
+                    ),
+                )
 
         response = await process(message)
         if response:

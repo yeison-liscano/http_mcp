@@ -139,6 +139,18 @@ class HTTPTransport(BaseTransport):
         except InsufficientScopeError:
             await self._send_forbidden_response(send)
             return
+        except Exception:
+            LOGGER.exception("Unexpected error processing request")
+            await self._send_error_response(
+                send,
+                ErrorResponseInfo(
+                    message_id=message.id,
+                    protocol_code=ErrorCode.INTERNAL_ERROR,
+                    http_status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    message="Internal server error",
+                ),
+            )
+            return
 
         await send(
             {

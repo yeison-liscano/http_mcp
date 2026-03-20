@@ -108,6 +108,15 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
   - `integration.py` — `ProtectedMCPAppConfig`, `CORSConfig`,
     `create_protected_mcp_app()`.
 
+- **`authorization_server/`** — Authorization Server components (Phase 2):
+  - `client_store.py` — Abstract `ClientStore` for Dynamic Client Registration
+    (RFC 7591). Implementations persist registered clients.
+  - `metadata_endpoint.py` — `AuthorizationServerMetadataEndpoint` ASGI handler
+    for `/.well-known/oauth-authorization-server` (RFC 8414).
+  - `registration_endpoint.py` — `DynamicClientRegistrationEndpoint` ASGI
+    handler for `/register`. Validates requests, delegates to `ClientStore`,
+    returns 201 with `ClientRegistrationResponse`.
+
 ### Test Structure
 
 Tests in `tests/` use pytest with pytest-asyncio. A test Starlette app lives in
