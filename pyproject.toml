@@ -15,9 +15,9 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-version = "0.11.2"
+version = "0.11.3"
 
-dependencies = ["pydantic (>=2.12.5,<3.0.0)", "uvicorn (>=0.41.0,<0.42.0)", "starlette (>=0.52.1,<0.53.0)"]
+dependencies = ["pydantic (>=2.12.5,<3.0.0)", "uvicorn (>=0.41.0,<0.42.0)", "starlette (>=0.52.1,<1.2.0)"]
 
 [project.optional-dependencies]
 auth = []

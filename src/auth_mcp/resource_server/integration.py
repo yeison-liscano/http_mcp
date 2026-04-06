@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from auth_mcp.resource_server.authentication_backend import OAuthAuthenticationBackend
 from auth_mcp.resource_server.metadata_endpoint import ProtectedResourceMetadataEndpoint
@@ -71,25 +72,22 @@ def create_protected_mcp_app(
     - Optional CORS middleware via ``config.cors``
     """
     metadata = ProtectedResourceMetadata(
-        resource=config.resource_uri,  # type: ignore[arg-type]
-        authorization_servers=config.authorization_servers,  # type: ignore[arg-type]
+        resource=AnyHttpUrl(config.resource_uri),
+        authorization_servers=tuple(AnyHttpUrl(url) for url in config.authorization_servers),
         scopes_supported=config.scopes_supported,
     )
     metadata_endpoint = ProtectedResourceMetadataEndpoint(metadata)
-    resource_metadata_url = f"{config.resource_uri}/.well-known/oauth-protected-resource"
-
-    backend = OAuthAuthenticationBackend(
-        token_validator=config.token_validator,
-        resource_uri=config.resource_uri,
-        require_authentication=config.require_authentication,
+    resource_metadata_url = (
+        f"/.well-known/oauth-protected-resource{config.mcp_path}"
     )
 
-    middleware: list[Middleware] = []
+
+    middlewares: list[Middleware] = []
 
     if config.cors is not None:
         from starlette.middleware.cors import CORSMiddleware  # noqa: PLC0415
 
-        middleware.append(
+        middlewares.append(
             Middleware(
                 CORSMiddleware,
                 allow_origins=list(config.cors.allow_origins),
@@ -99,23 +97,9 @@ def create_protected_mcp_app(
             ),
         )
 
-    middleware.extend([
-        Middleware(
-            AuthErrorMiddleware,
-            resource_metadata_url=resource_metadata_url,
-            realm=config.realm,
-        ),
-        Middleware(
-            AuthenticationMiddleware,
-            backend=backend,
-            on_error=on_auth_error,
-        ),
-        *config.extra_middleware,
-    ])
-
-    routes: list[Route] = [
+    routes: list[Route | Mount] = [
         Route(
-            "/.well-known/oauth-protected-resource",
+            f"/.well-known/oauth-protected-resource{config.mcp_path}",
             metadata_endpoint,
         ),
     ]
@@ -128,9 +112,14 @@ def create_protected_mcp_app(
         as_metadata_endpoint = AuthorizationServerMetadataEndpoint(
             config.authorization_server_metadata,
         )
+        auth_server_metadata_path = (
+
+                "/.well-known/oauth-authorization-server"
+                f"{config.authorization_server_metadata.issuer.path or ''}"
+        )
         routes.append(
             Route(
-                "/.well-known/oauth-authorization-server",
+                auth_server_metadata_path,
                 as_metadata_endpoint,
             ),
         )
@@ -143,10 +132,34 @@ def create_protected_mcp_app(
         registration_endpoint = DynamicClientRegistrationEndpoint(config.client_store)
         routes.append(Route("/register", registration_endpoint))
 
-    app = Starlette(
+
+    routes.append(
+        Mount(
+            config.mcp_path,
+            config.mcp_server.app,
+            middleware=[
+                Middleware(
+                    AuthErrorMiddleware,
+                    resource_metadata_url=resource_metadata_url,
+                    realm=config.realm,
+                ),
+                Middleware(
+                    AuthenticationMiddleware,
+                        backend=OAuthAuthenticationBackend(
+                        token_validator=config.token_validator,
+                        resource_uri=config.resource_uri,
+                        require_authentication=config.require_authentication,
+                    ),
+                    on_error=on_auth_error,
+                ),
+                *config.extra_middleware,
+                *middlewares,
+            ],
+        ),
+    )
+
+    return Starlette(
         routes=routes,
-        middleware=middleware,
+        middleware=middlewares + list(config.extra_middleware),
         **starlette_kwargs,  # type: ignore[arg-type]
     )
-    app.mount(config.mcp_path, config.mcp_server.app)
-    return app
