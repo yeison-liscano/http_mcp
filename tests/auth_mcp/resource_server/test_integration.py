@@ -108,7 +108,7 @@ def _create_app(*, require_authentication: bool = True) -> TestClient:
 
 def test_protected_resource_metadata_endpoint() -> None:
     client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    response = client.get("/.well-known/oauth-protected-resource/mcp")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data["resource"] == "https://mcp.example.com/"

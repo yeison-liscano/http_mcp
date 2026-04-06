@@ -91,7 +91,7 @@ def _post_mcp(
 
 def test_metadata_endpoint_returns_resource_info() -> None:
     client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    response = client.get("/.well-known/oauth-protected-resource/mcp/")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data["resource"] == f"{_RESOURCE_URI}/"
@@ -101,7 +101,7 @@ def test_metadata_endpoint_returns_resource_info() -> None:
 
 def test_metadata_endpoint_has_security_headers() -> None:
     client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    response = client.get("/.well-known/oauth-protected-resource/mcp/")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["cache-control"] == "no-store"
     assert "max-age=" in response.headers["strict-transport-security"]
