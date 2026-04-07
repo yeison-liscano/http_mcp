@@ -158,7 +158,7 @@ wheels = [
 
 [[package]]
 name = "http-mcp"
-version = "0.12.0rc2"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
