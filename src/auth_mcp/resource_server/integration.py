@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -63,8 +64,10 @@ def create_protected_mcp_app(
     - Optional custom middleware via ``config.middlewares``
     """
     metadata_endpoint = ProtectedResourceMetadataEndpoint(config.resource_endpoint)
+    parsed = urlparse(str(config.resource_endpoint.resource))
+    resource_origin = f"{parsed.scheme}://{parsed.netloc}"
     resource_metadata_url = (
-        f"/.well-known/oauth-protected-resource{config.mcp_path}"
+        f"{resource_origin}/.well-known/oauth-protected-resource{config.mcp_path}/"
     )
 
     routes: list[Route | Mount] = [
