@@ -46,6 +46,7 @@ from auth_mcp.resource_server import (
     TokenValidator,
     create_protected_mcp_app,
 )
+from auth_mcp.types import ProtectedResourceMetadata
 
 
 class MyTokenValidator(TokenValidator):
@@ -62,9 +63,11 @@ mcp_server = MCPServer(name="my-server", version="1.0.0", tools=MY_TOOLS)
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=MyTokenValidator(),
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
-    scopes_supported=("read", "write"),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+        scopes_supported=("read", "write"),
+    ),
 )
 
 app = create_protected_mcp_app(config)
@@ -92,7 +95,7 @@ Incoming HTTP request
         │
         ▼
 ┌─────────────────────────┐
-│     CORSMiddleware      │  (optional — only when config.cors is set)
+│  Custom Middlewares      │  (optional — from config.middlewares)
 └───────────┬─────────────┘
             │
             ▼
@@ -259,23 +262,22 @@ and `\` escaped per RFC 7230).
 
 ```python
 from auth_mcp.resource_server import (
-    CORSConfig,
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
+from auth_mcp.types import ProtectedResourceMetadata
 
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=my_validator,
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
-    scopes_supported=("read", "write"),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+        scopes_supported=("read", "write"),
+    ),
     mcp_path="/mcp",                 # MCP endpoint mount path
     realm="my-mcp-server",           # WWW-Authenticate realm
     require_authentication=True,     # enforce auth (default)
-    cors=CORSConfig(                 # optional CORS
-        allow_origins=("https://client.example.com",),
-    ),
 )
 
 app = create_protected_mcp_app(config)
@@ -347,15 +349,15 @@ or expired tokens are silently treated as unauthenticated rather than rejected.
 `Strict-Transport-Security` headers, but TLS termination must be configured at
 the reverse proxy or load balancer.
 
-**Set specific CORS origins.** Never use `allow_origins=("*",)` with
+**Set specific CORS origins.** Never use `allow_origins=["*"]` with
 `allow_credentials=True`. Always list the exact origins that need access.
 
 ```python
 # Good: specific origins
-cors=CORSConfig(allow_origins=("https://app.example.com",))
+Middleware(CORSMiddleware, allow_origins=["https://app.example.com"])
 
 # Bad: wildcard with credentials
-cors=CORSConfig(allow_origins=("*",), allow_credentials=True)
+Middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True)
 ```
 
 **Use the metadata endpoint for discovery.** Clients should fetch
@@ -412,8 +414,10 @@ config = ProtectedMCPAppConfig(
         issuer="https://auth.example.com",
         audience="https://mcp.example.com",
     ),
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+    ),
 )
 
 app = create_protected_mcp_app(config)
@@ -447,9 +451,11 @@ TOOLS = (
 config = ProtectedMCPAppConfig(
     mcp_server=MCPServer(name="api", version="1.0.0", tools=TOOLS),
     token_validator=my_validator,
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
-    require_authentication=False,  # allow public access to unsoped tools
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+    ),
+    require_authentication=False,  # allow public access to unscoped tools
 )
 
 app = create_protected_mcp_app(config)
@@ -461,24 +467,33 @@ and `list_models`. Authenticated users with the right scopes also see
 
 ### Browser-Based MCP Client with CORS
 
-Enable cross-origin access for a browser-based client:
+Enable cross-origin access for a browser-based client using the `middlewares`
+parameter with Starlette's `CORSMiddleware`:
 
 ```python
-from auth_mcp.resource_server import CORSConfig, ProtectedMCPAppConfig
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from auth_mcp.resource_server import ProtectedMCPAppConfig
+from auth_mcp.types import ProtectedResourceMetadata
 
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=my_validator,
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
-    cors=CORSConfig(
-        allow_origins=(
-            "https://app.example.com",
-            "https://staging.example.com",
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+    ),
+    middlewares=(
+        Middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "https://app.example.com",
+                "https://staging.example.com",
+            ],
+            allow_methods=["GET", "POST"],
+            allow_headers=["Authorization", "Content-Type"],
+            allow_credentials=True,
         ),
-        allow_methods=("GET", "POST"),
-        allow_headers=("Authorization", "Content-Type"),
-        allow_credentials=True,
     ),
 )
 
