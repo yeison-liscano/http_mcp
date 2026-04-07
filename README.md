@@ -542,9 +542,7 @@ support lifespan state access, similar to tools.
 ```python
 from pydantic import BaseModel, Field
 
-from http_mcp._mcp_types.content import TextContent
-from http_mcp._mcp_types.prompts import PromptMessage
-from http_mcp.types import Arguments, Prompt
+from http_mcp.types import Arguments, Prompt, PromptMessage, TextContent
 
 
 class GetAdvice(BaseModel):
@@ -955,6 +953,7 @@ from auth_mcp.resource_server import (
     TokenValidator,
     create_protected_mcp_app,
 )
+from auth_mcp.types import ProtectedResourceMetadata
 
 
 class MyTokenValidator(TokenValidator):
@@ -970,8 +969,10 @@ mcp_server = MCPServer(name="my-server", version="1.0.0", tools=MY_TOOLS)
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=MyTokenValidator(),
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+    ),
 )
 
 app = create_protected_mcp_app(config)
@@ -983,7 +984,7 @@ This gives you:
 - `/.well-known/oauth-protected-resource` discovery endpoint (RFC 9728)
 - `WWW-Authenticate` headers on 401/403 with `resource_metadata` parameter
 - Security headers (HSTS, nosniff, no-store)
-- Optional CORS configuration via `CORSConfig`
+- Optional custom middleware via the `middlewares` parameter
 
 For full documentation, best practices, and security surface details, see
 [auth_mcp README](src/auth_mcp/README.md).

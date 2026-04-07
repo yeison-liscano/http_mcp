@@ -1,15 +1,16 @@
 from http import HTTPStatus
 
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.testclient import TestClient
 
 from auth_mcp.authorization_server.client_store import ClientStore
 from auth_mcp.resource_server.integration import (
-    CORSConfig,
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
-from auth_mcp.types.metadata import AuthorizationServerMetadata
+from auth_mcp.types.metadata import AuthorizationServerMetadata, ProtectedResourceMetadata
 from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
 from http_mcp.server import MCPServer
 from http_mcp.types import Tool
@@ -97,9 +98,11 @@ def _create_app(*, require_authentication: bool = True) -> TestClient:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
-        scopes_supported=("read", "write", "private"),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+            scopes_supported=("read", "write", "private"),
+        ),
         require_authentication=require_authentication,
     )
     app = create_protected_mcp_app(config)
@@ -215,12 +218,14 @@ def test_cors_config_adds_cors_headers() -> None:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
-        require_authentication=False,
-        cors=CORSConfig(
-            allow_origins=("https://client.example.com",),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
         ),
+        require_authentication=False,
+        middlewares=[
+            Middleware(CORSMiddleware, allow_origins=("https://client.example.com",)),
+        ],
     )
     app = create_protected_mcp_app(config)
     client = TestClient(app)
@@ -241,8 +246,10 @@ def test_authorization_server_metadata_endpoint() -> None:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
         require_authentication=False,
         authorization_server_metadata=_AS_METADATA,
     )
@@ -261,8 +268,10 @@ def test_client_store_serves_register_endpoint() -> None:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
         require_authentication=False,
         client_store=MockClientStore(),
     )
@@ -297,8 +306,10 @@ def test_full_discovery_flow() -> None:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
         require_authentication=False,
         authorization_server_metadata=_AS_METADATA,
         client_store=MockClientStore(),

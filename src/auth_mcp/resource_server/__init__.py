@@ -1,6 +1,5 @@
 from auth_mcp.resource_server.authentication_backend import OAuthAuthenticationBackend
 from auth_mcp.resource_server.integration import (
-    CORSConfig,
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
@@ -14,7 +13,6 @@ from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 
 __all__ = (
     "AuthErrorMiddleware",
-    "CORSConfig",
     "OAuthAuthenticationBackend",
     "ProtectedMCPAppConfig",
     "ProtectedResourceMetadataEndpoint",
