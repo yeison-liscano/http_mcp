@@ -301,6 +301,91 @@ def test_no_client_store_returns_404() -> None:
     assert response.status_code == HTTPStatus.NOT_FOUND
 
 
+_EXPECTED_METADATA_URL = (
+    "https://mcp.example.com/.well-known/oauth-protected-resource/mcp/"
+)
+
+
+def test_www_authenticate_resource_metadata_is_absolute_url_on_401() -> None:
+    client = _create_app(require_authentication=True)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    assert f'resource_metadata="{_EXPECTED_METADATA_URL}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_is_absolute_url_on_403() -> None:
+    client = _create_app(require_authentication=True)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "_private_tool", "arguments": {}},
+        },
+        headers={"Authorization": f"Bearer {_PUBLIC_ONLY_TOKEN}"},
+    )
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    www_auth = response.headers["www-authenticate"]
+    assert f'resource_metadata="{_EXPECTED_METADATA_URL}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_uses_origin_only() -> None:
+    """Resource URL with a path: only origin is used in the metadata URL."""
+    server = MCPServer(name="test-path", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://api.example.com/v1",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=True,
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    expected = (
+        "https://api.example.com"
+        "/.well-known/oauth-protected-resource/mcp/"
+    )
+    assert f'resource_metadata="{expected}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_port_included_when_present() -> None:
+    server = MCPServer(name="test-port", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="http://localhost:8443",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=True,
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    expected = (
+        "http://localhost:8443"
+        "/.well-known/oauth-protected-resource/mcp/"
+    )
+    assert f'resource_metadata="{expected}"' in www_auth
+
 def test_full_discovery_flow() -> None:
     server = MCPServer(name="test-flow", version="1.0.0", tools=_TOOLS)
     config = ProtectedMCPAppConfig(
