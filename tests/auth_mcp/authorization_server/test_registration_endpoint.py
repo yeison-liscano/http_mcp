@@ -1,6 +1,7 @@
 import json
 from http import HTTPStatus
 
+import pytest
 from starlette.testclient import TestClient
 
 from auth_mcp.authorization_server.client_store import ClientStore
@@ -46,8 +47,14 @@ class CrashingClientStore(ClientStore):
         raise RuntimeError(msg)
 
 
-def _create_client(store: ClientStore | None = None) -> TestClient:
-    endpoint = DynamicClientRegistrationEndpoint(store or MockClientStore())
+def _create_client(
+    store: ClientStore | None = None,
+    allowed_custom_redirect_schemes: tuple[str, ...] = (),
+) -> TestClient:
+    endpoint = DynamicClientRegistrationEndpoint(
+        store or MockClientStore(),
+        allowed_custom_redirect_schemes=allowed_custom_redirect_schemes,
+    )
     return TestClient(endpoint)
 
 
@@ -180,3 +187,49 @@ def test_none_fields_excluded_from_response() -> None:
     assert "client_secret" not in data
     assert "client_id_issued_at" not in data
     assert "client_secret_expires_at" not in data
+
+
+def test_custom_scheme_rejected_without_allowlist() -> None:
+    client = _create_client()
+    response = client.post(
+        "/",
+        json={"redirect_uris": ["cursor://anysphere.cursor-mcp/oauth/callback"]},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    data = response.json()
+    assert data["error"] == "invalid_client_metadata"
+
+
+def test_custom_scheme_accepted_when_allowlisted() -> None:
+    client = _create_client(allowed_custom_redirect_schemes=("cursor",))
+    response = client.post(
+        "/",
+        json={"redirect_uris": ["cursor://anysphere.cursor-mcp/oauth/callback"]},
+    )
+    assert response.status_code == HTTPStatus.CREATED
+    data = response.json()
+    assert data["redirect_uris"] == ["cursor://anysphere.cursor-mcp/oauth/callback"]
+
+
+def test_init_rejects_disallowed_scheme_in_allowlist() -> None:
+    with pytest.raises(ValueError, match="must not include disallowed schemes"):
+        DynamicClientRegistrationEndpoint(
+            MockClientStore(),
+            allowed_custom_redirect_schemes=("cursor", "javascript"),
+        )
+
+
+def test_init_rejects_https_in_allowlist() -> None:
+    with pytest.raises(ValueError, match="must not include 'https'"):
+        DynamicClientRegistrationEndpoint(
+            MockClientStore(),
+            allowed_custom_redirect_schemes=("https",),
+        )
+
+
+def test_init_rejects_http_in_allowlist() -> None:
+    with pytest.raises(ValueError, match="must not include 'http'"):
+        DynamicClientRegistrationEndpoint(
+            MockClientStore(),
+            allowed_custom_redirect_schemes=("http",),
+        )

@@ -10,7 +10,10 @@ from starlette.types import Receive, Scope, Send
 from auth_mcp.authorization_server.client_store import ClientStore
 from auth_mcp.exceptions import RegistrationError
 from auth_mcp.types.errors import OAuthErrorResponse
-from auth_mcp.types.registration import ClientRegistrationRequest
+from auth_mcp.types.registration import (
+    DISALLOWED_REDIRECT_SCHEMES,
+    ClientRegistrationRequest,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,8 +51,28 @@ class DynamicClientRegistrationEndpoint:
     body as a ``ClientRegistrationRequest`` and delegates to a ``ClientStore``.
     """
 
-    def __init__(self, client_store: ClientStore) -> None:
+    def __init__(
+        self,
+        client_store: ClientStore,
+        allowed_custom_redirect_schemes: frozenset[str] | set[str] | tuple[str, ...] = (),
+    ) -> None:
+        normalized = frozenset(s.lower() for s in allowed_custom_redirect_schemes)
+        conflicts = normalized & DISALLOWED_REDIRECT_SCHEMES
+        if conflicts:
+            msg = (
+                "allowed_custom_redirect_schemes must not include disallowed "
+                f"schemes: {sorted(conflicts)}"
+            )
+            raise ValueError(msg)
+        for reserved in ("http", "https"):
+            if reserved in normalized:
+                msg = (
+                    "allowed_custom_redirect_schemes must not include "
+                    f"{reserved!r}; it is already handled by default rules"
+                )
+                raise ValueError(msg)
         self._client_store = client_store
+        self._allowed_custom_redirect_schemes = normalized
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope, receive)
@@ -100,14 +123,13 @@ class DynamicClientRegistrationEndpoint:
             headers=_SECURITY_HEADERS,
         )
 
-    @staticmethod
-    def _parse_body(body: bytes) -> ClientRegistrationRequest | Response:
+    def _parse_body(self, body: bytes) -> ClientRegistrationRequest | Response:
         try:
-            data = json.loads(body)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return _error_response("Invalid JSON")
-
-        try:
-            return ClientRegistrationRequest.model_validate(data)
+            return ClientRegistrationRequest.model_validate_json(
+                body,
+                context={
+                    "allowed_custom_redirect_schemes": self._allowed_custom_redirect_schemes,
+                },
+            )
         except ValidationError as exc:
             return _error_response(str(exc.errors()[0]["msg"]))

@@ -37,6 +37,7 @@ class ProtectedMCPAppConfig:
     require_authentication: bool = True
     authorization_server_metadata: AuthorizationServerMetadata | None = None
     client_store: ClientStore | None = None
+    allowed_custom_redirect_schemes: frozenset[str] = field(default_factory=frozenset)
     middlewares: tuple[Middleware, ...] = field(default_factory=tuple)
 
 
@@ -101,7 +102,10 @@ def create_protected_mcp_app(
             DynamicClientRegistrationEndpoint,
         )
 
-        registration_endpoint = DynamicClientRegistrationEndpoint(config.client_store)
+        registration_endpoint = DynamicClientRegistrationEndpoint(
+            config.client_store,
+            allowed_custom_redirect_schemes=config.allowed_custom_redirect_schemes,
+        )
         registration_path = _get_registration_endpoint_path(config)
         routes.append(Route(registration_path, registration_endpoint))
 
