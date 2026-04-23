@@ -1,19 +1,48 @@
 from http import HTTPStatus
 
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.testclient import TestClient
 
+from auth_mcp.authorization_server.client_store import ClientStore
 from auth_mcp.resource_server.integration import (
-    CORSConfig,
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
+from auth_mcp.types.metadata import AuthorizationServerMetadata, ProtectedResourceMetadata
+from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
 from http_mcp.server import MCPServer
 from http_mcp.types import Tool
 from http_mcp.types.models import NoArguments
 
 _VALID_TOKEN = "valid_token"  # noqa: S105
 _PUBLIC_ONLY_TOKEN = "public_only_token"  # noqa: S105
+
+_AS_METADATA = AuthorizationServerMetadata(
+    issuer="https://auth.example.com",
+    authorization_endpoint="https://auth.example.com/authorize",
+    token_endpoint="https://auth.example.com/token",  # noqa: S106
+    registration_endpoint="https://auth.example.com/register",
+)
+
+
+class MockClientStore(ClientStore):
+    def __init__(self) -> None:
+        self._counter = 0
+
+    async def register_client(
+        self,
+        request: ClientRegistrationRequest,
+    ) -> ClientRegistrationResponse:
+        self._counter += 1
+        return ClientRegistrationResponse(
+            client_id=f"client_{self._counter}",
+            redirect_uris=request.redirect_uris,
+            grant_types=request.grant_types,
+            response_types=request.response_types,
+            token_endpoint_auth_method=request.token_endpoint_auth_method,
+        )
 
 
 class MockTokenValidator(TokenValidator):
@@ -69,9 +98,11 @@ def _create_app(*, require_authentication: bool = True) -> TestClient:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
-        scopes_supported=("read", "write", "private"),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+            scopes_supported=("read", "write", "private"),
+        ),
         require_authentication=require_authentication,
     )
     app = create_protected_mcp_app(config)
@@ -80,7 +111,7 @@ def _create_app(*, require_authentication: bool = True) -> TestClient:
 
 def test_protected_resource_metadata_endpoint() -> None:
     client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    response = client.get("/.well-known/oauth-protected-resource/mcp")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data["resource"] == "https://mcp.example.com/"
@@ -187,12 +218,14 @@ def test_cors_config_adds_cors_headers() -> None:
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=MockTokenValidator(),
-        resource_uri="https://mcp.example.com",
-        authorization_servers=("https://auth.example.com",),
-        require_authentication=False,
-        cors=CORSConfig(
-            allow_origins=("https://client.example.com",),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
         ),
+        require_authentication=False,
+        middlewares=[
+            Middleware(CORSMiddleware, allow_origins=("https://client.example.com",)),
+        ],
     )
     app = create_protected_mcp_app(config)
     client = TestClient(app)
@@ -206,3 +239,177 @@ def test_cors_config_adds_cors_headers() -> None:
     )
     assert "access-control-allow-origin" in response.headers
     assert response.headers["access-control-allow-origin"] == "https://client.example.com"
+
+
+def test_authorization_server_metadata_endpoint() -> None:
+    server = MCPServer(name="test-as", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=False,
+        authorization_server_metadata=_AS_METADATA,
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.get("/.well-known/oauth-authorization-server")
+    assert response.status_code == HTTPStatus.OK
+    data = response.json()
+    assert data["issuer"] == "https://auth.example.com/"
+    assert data["authorization_endpoint"] == "https://auth.example.com/authorize"
+    assert data["token_endpoint"] == "https://auth.example.com/token"  # noqa: S105
+
+
+def test_client_store_serves_register_endpoint() -> None:
+    server = MCPServer(name="test-dcr", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=False,
+        client_store=MockClientStore(),
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.post(
+        "/register",
+        json={"redirect_uris": ["https://example.com/callback"]},
+    )
+    assert response.status_code == HTTPStatus.CREATED
+    data = response.json()
+    assert "client_id" in data
+
+
+def test_no_as_metadata_returns_404() -> None:
+    client = _create_app(require_authentication=False)
+    response = client.get("/.well-known/oauth-authorization-server")
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_no_client_store_returns_404() -> None:
+    client = _create_app(require_authentication=False)
+    response = client.post(
+        "/register",
+        json={"redirect_uris": ["https://example.com/callback"]},
+    )
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+_EXPECTED_METADATA_URL = (
+    "https://mcp.example.com/.well-known/oauth-protected-resource/mcp/"
+)
+
+
+def test_www_authenticate_resource_metadata_is_absolute_url_on_401() -> None:
+    client = _create_app(require_authentication=True)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    assert f'resource_metadata="{_EXPECTED_METADATA_URL}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_is_absolute_url_on_403() -> None:
+    client = _create_app(require_authentication=True)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "_private_tool", "arguments": {}},
+        },
+        headers={"Authorization": f"Bearer {_PUBLIC_ONLY_TOKEN}"},
+    )
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    www_auth = response.headers["www-authenticate"]
+    assert f'resource_metadata="{_EXPECTED_METADATA_URL}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_uses_origin_only() -> None:
+    """Resource URL with a path: only origin is used in the metadata URL."""
+    server = MCPServer(name="test-path", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://api.example.com/v1",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=True,
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    expected = (
+        "https://api.example.com"
+        "/.well-known/oauth-protected-resource/mcp/"
+    )
+    assert f'resource_metadata="{expected}"' in www_auth
+
+
+def test_www_authenticate_resource_metadata_port_included_when_present() -> None:
+    server = MCPServer(name="test-port", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="http://localhost:8443",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=True,
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    www_auth = response.headers["www-authenticate"]
+    expected = (
+        "http://localhost:8443"
+        "/.well-known/oauth-protected-resource/mcp/"
+    )
+    assert f'resource_metadata="{expected}"' in www_auth
+
+def test_full_discovery_flow() -> None:
+    server = MCPServer(name="test-flow", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=False,
+        authorization_server_metadata=_AS_METADATA,
+        client_store=MockClientStore(),
+    )
+    app = create_protected_mcp_app(config)
+    client = TestClient(app)
+
+    as_response = client.get("/.well-known/oauth-authorization-server")
+    assert as_response.status_code == HTTPStatus.OK
+    as_data = as_response.json()
+    assert "registration_endpoint" in as_data
+
+    reg_response = client.post(
+        "/register",
+        json={"redirect_uris": ["https://example.com/callback"]},
+    )
+    assert reg_response.status_code == HTTPStatus.CREATED
+    assert "client_id" in reg_response.json()

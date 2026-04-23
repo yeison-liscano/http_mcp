@@ -24,6 +24,16 @@ class MockTokenValidator(TokenValidator):
         return None
 
 
+class CrashingTokenValidator(TokenValidator):
+    async def validate_token(
+        self,
+        token: str,  # noqa: ARG002
+        resource: str | None = None,  # noqa: ARG002
+    ) -> TokenInfo | None:
+        msg = "connection refused"
+        raise ConnectionError(msg)
+
+
 def _make_connection(headers: dict[str, str] | None = None) -> HTTPConnection:
     """Create a minimal HTTPConnection with given headers for testing."""
     scope = {
@@ -182,3 +192,26 @@ async def test_rejects_token_with_spaces() -> None:
     conn = _make_connection({"Authorization": "Bearer tok en"})
     _, user = await backend.authenticate(conn)
     assert isinstance(user, UnauthenticatedUser)
+
+
+@pytest.mark.asyncio
+async def test_validator_exception_treated_as_failed_when_auth_not_required() -> None:
+    backend = OAuthAuthenticationBackend(
+        token_validator=CrashingTokenValidator(),
+        resource_uri="https://mcp.example.com",
+        require_authentication=False,
+    )
+    conn = _make_connection({"Authorization": f"Bearer {_VALID_ACCESS_TOKEN}"})
+    _, user = await backend.authenticate(conn)
+    assert isinstance(user, UnauthenticatedUser)
+
+
+@pytest.mark.asyncio
+async def test_validator_exception_raises_auth_error_when_auth_required() -> None:
+    backend = OAuthAuthenticationBackend(
+        token_validator=CrashingTokenValidator(),
+        resource_uri="https://mcp.example.com",
+    )
+    conn = _make_connection({"Authorization": f"Bearer {_VALID_ACCESS_TOKEN}"})
+    with pytest.raises(Exception, match="Invalid or expired token"):
+        await backend.authenticate(conn)

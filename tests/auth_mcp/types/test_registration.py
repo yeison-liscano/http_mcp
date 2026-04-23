@@ -59,21 +59,21 @@ def test_client_registration_request_rejects_http_non_localhost() -> None:
 
 
 def test_client_registration_request_rejects_javascript_uri() -> None:
-    with pytest.raises(ValidationError, match="must be an absolute URI"):
+    with pytest.raises(ValidationError, match="scheme is not allowed"):
         ClientRegistrationRequest(
             redirect_uris=("javascript:alert(1)",),
         )
 
 
 def test_client_registration_request_rejects_data_uri() -> None:
-    with pytest.raises(ValidationError, match="must be an absolute URI"):
+    with pytest.raises(ValidationError, match="scheme is not allowed"):
         ClientRegistrationRequest(
             redirect_uris=("data:text/html,<script>alert(1)</script>",),
         )
 
 
 def test_client_registration_request_rejects_ftp_scheme() -> None:
-    with pytest.raises(ValidationError, match="must use HTTPS"):
+    with pytest.raises(ValidationError, match="scheme is not allowed"):
         ClientRegistrationRequest(
             redirect_uris=("ftp://files.example.com/callback",),
         )
@@ -83,6 +83,42 @@ def test_client_registration_request_rejects_relative_uri() -> None:
     with pytest.raises(ValidationError, match="must be an absolute URI"):
         ClientRegistrationRequest(
             redirect_uris=("/callback",),
+        )
+
+
+def test_client_registration_request_rejects_unlisted_custom_scheme() -> None:
+    with pytest.raises(
+        ValidationError,
+        match=r"must use HTTPS .* or a scheme explicitly allowed by the server",
+    ):
+        ClientRegistrationRequest(
+            redirect_uris=("cursor://anysphere.cursor-mcp/oauth/callback",),
+        )
+
+
+def test_client_registration_request_allows_listed_custom_scheme() -> None:
+    request = ClientRegistrationRequest.model_validate(
+        {"redirect_uris": ("cursor://anysphere.cursor-mcp/oauth/callback",)},
+        context={"allowed_custom_redirect_schemes": frozenset({"cursor"})},
+    )
+    assert request.redirect_uris == ("cursor://anysphere.cursor-mcp/oauth/callback",)
+
+
+def test_client_registration_request_allows_listed_custom_scheme_case_insensitive() -> None:
+    request = ClientRegistrationRequest.model_validate(
+        {"redirect_uris": ("Cursor://anysphere.cursor-mcp/oauth/callback",)},
+        context={"allowed_custom_redirect_schemes": frozenset({"CURSOR"})},
+    )
+    assert request.redirect_uris == ("Cursor://anysphere.cursor-mcp/oauth/callback",)
+
+
+def test_client_registration_request_disallowed_scheme_not_bypassable_by_allowlist() -> None:
+    # Even if a caller mistakenly allows ``javascript``, the hard denylist
+    # still rejects the URI at the Pydantic level.
+    with pytest.raises(ValidationError, match="scheme is not allowed"):
+        ClientRegistrationRequest.model_validate(
+            {"redirect_uris": ("javascript:alert(1)",)},
+            context={"allowed_custom_redirect_schemes": frozenset({"javascript"})},
         )
 
 

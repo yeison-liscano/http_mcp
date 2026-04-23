@@ -6,19 +6,21 @@ tests/app/ to verify the full OAuth 2.1 authorization flow end-to-end.
 
 from http import HTTPStatus
 
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from auth_mcp.resource_server.integration import ProtectedMCPAppConfig, create_protected_mcp_app
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
+from auth_mcp.types.metadata import ProtectedResourceMetadata
 from http_mcp.server import MCPServer
 from tests.fixtures.main import lifespan
 from tests.fixtures.prompts import PROMPTS
 from tests.fixtures.tools import TOOLS
 
 _VALID_TOKEN = "test_oauth_token"  # noqa: S105
-_RESOURCE_URI = "https://mcp.example.com"
-_AUTH_SERVER = "https://auth.example.com"
+_RESOURCE_URI = AnyHttpUrl("https://mcp.example.com")
+_AUTH_SERVER = AnyHttpUrl("https://auth.example.com")
 
 
 class _MockTokenValidator(TokenValidator):
@@ -52,9 +54,11 @@ def _create_starlette_app(
     config = ProtectedMCPAppConfig(
         mcp_server=server,
         token_validator=_MockTokenValidator(scopes=scopes),
-        resource_uri=_RESOURCE_URI,
-        authorization_servers=(_AUTH_SERVER,),
-        scopes_supported=("private", "superuser"),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource=_RESOURCE_URI,
+            authorization_servers=(_AUTH_SERVER,),
+            scopes_supported=("private", "superuser"),
+        ),
         require_authentication=require_authentication,
     )
     return create_protected_mcp_app(config, lifespan=lifespan)
@@ -90,18 +94,18 @@ def _post_mcp(
 
 
 def test_metadata_endpoint_returns_resource_info() -> None:
-    client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    client = _create_app()
+    response = client.get("/.well-known/oauth-protected-resource/mcp/")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
-    assert data["resource"] == f"{_RESOURCE_URI}/"
-    assert f"{_AUTH_SERVER}/" in data["authorization_servers"]
+    assert data["resource"] == str(_RESOURCE_URI)
+    assert str(_AUTH_SERVER) in data["authorization_servers"]
     assert data["scopes_supported"] == ["private", "superuser"]
 
 
 def test_metadata_endpoint_has_security_headers() -> None:
     client = _create_app(require_authentication=False)
-    response = client.get("/.well-known/oauth-protected-resource")
+    response = client.get("/.well-known/oauth-protected-resource/mcp/")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["cache-control"] == "no-store"
     assert "max-age=" in response.headers["strict-transport-security"]
