@@ -89,6 +89,17 @@ def test_notification() -> None:
     assert response.text == ""
 
 
+def test_ping() -> None:
+    client = TestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": "1", "method": "ping"},
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == {"jsonrpc": "2.0", "id": "1", "result": {}}
+
+
 def test_invalid_message() -> None:
     client = TestClient(DUMMY_SERVER.app)
 

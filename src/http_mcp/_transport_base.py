@@ -1,7 +1,7 @@
 import logging
 from http import HTTPStatus
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
@@ -9,6 +9,7 @@ from http_mcp._json_rcp_types.messages import (
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
+    JSONRPCResponse,
 )
 from http_mcp._mcp_types.content import TextContent
 from http_mcp._mcp_types.messages import (
@@ -45,9 +46,15 @@ LOGGER = logging.getLogger(__name__)
 TOOLS_CHUNK_SIZE = 100
 
 
+class _PingResult(BaseModel):
+    pass
+
+
 class BaseTransport:
     supported_versions = ("2025-03-26", "2025-06-18", "2025-11-25")
-    supported_methods = ("initialize", "tools/list", "tools/call", "prompts/list", "prompts/get")
+    supported_methods = (
+        "initialize", "ping", "tools/list", "tools/call", "prompts/list", "prompts/get",
+    )
 
     def __init__(self, server: ServerInterface) -> None:
         self._server = server
@@ -57,6 +64,8 @@ class BaseTransport:
         message: JSONRPCRequest,
         request: Request,
     ) -> JSONRPCMessage:
+        if message.method == "ping":
+            return JSONRPCResponse(jsonrpc="2.0", id=message.id, result=_PingResult())
         if message.method == "initialize":
             response, _ = self._handle_initialization(message)
             return response

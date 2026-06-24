@@ -19,6 +19,7 @@ class JSONRPCRequest(JSONRPCMessage):
         "tools/list",
         "tools/call",
         "initialize",
+        "ping",
         "notifications/subscribe",
         "notifications/unsubscribe",
         "notifications/initialized",
