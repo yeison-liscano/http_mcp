@@ -158,5 +158,4 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
             "inputSchema": self.input_schema,
             "outputSchema": self.output_schema,
             "annotations": self.annotations,
-            "meta": None,
         }

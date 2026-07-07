@@ -496,9 +496,7 @@ def test_prompt_without_args_reraises_server_error() -> None:
     server = MCPServer(
         name="test",
         version="1.0.0",
-        prompts=(
-            Prompt(func=prompt_raising_server_error, arguments_type=type(None)),
-        ),
+        prompts=(Prompt(func=prompt_raising_server_error, arguments_type=type(None)),),
     )
     client = TestClient(server.app)
     response = client.post(
@@ -527,9 +525,7 @@ def test_prompt_with_args_reraises_server_error() -> None:
     server = MCPServer(
         name="test",
         version="1.0.0",
-        prompts=(
-            Prompt(func=prompt_raising_server_error, arguments_type=NoArguments),
-        ),
+        prompts=(Prompt(func=prompt_raising_server_error, arguments_type=NoArguments),),
     )
     client = TestClient(server.app)
     response = client.post(

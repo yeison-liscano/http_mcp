@@ -186,7 +186,6 @@ def test_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
                 {
                     "name": "tool_2",
@@ -228,7 +227,6 @@ def test_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
                 {
                     "name": "tool_that_raises_invocation_result",
@@ -293,7 +291,6 @@ def test_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
                 {
                     "name": "tool_without_arguments",
@@ -323,7 +320,6 @@ def test_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
                 {
                     "name": "tool_without_arguments_async",
@@ -353,7 +349,6 @@ def test_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
             ],
         },
@@ -685,9 +680,7 @@ def test_tool_without_args_reraises_server_error() -> None:
     server = MCPServer(
         name="test",
         version="1.0.0",
-        tools=(
-            Tool(func=tool_raising_server_error, inputs=type(None), output=SimpleOutput),
-        ),
+        tools=(Tool(func=tool_raising_server_error, inputs=type(None), output=SimpleOutput),),
     )
     client = TestClient(server.app)
     response = client.post(
@@ -715,9 +708,7 @@ def test_tool_with_args_reraises_server_error() -> None:
     server = MCPServer(
         name="test",
         version="1.0.0",
-        tools=(
-            Tool(func=tool_raising_server_error, inputs=NoArguments, output=SimpleOutput),
-        ),
+        tools=(Tool(func=tool_raising_server_error, inputs=NoArguments, output=SimpleOutput),),
     )
     client = TestClient(server.app)
     response = client.post(

@@ -40,9 +40,7 @@ def _make_connection(headers: dict[str, str] | None = None) -> HTTPConnection:
         "type": "http",
         "method": "POST",
         "path": "/mcp",
-        "headers": [
-            (k.lower().encode(), v.encode()) for k, v in (headers or {}).items()
-        ],
+        "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
     }
     return HTTPConnection(scope)
 

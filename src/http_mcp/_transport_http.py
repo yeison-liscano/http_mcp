@@ -81,32 +81,47 @@ class HTTPTransport(BaseTransport):
 
     async def _handle_raw_message(
         self,
-        raw_message: dict,
+        raw_message: object,
         send: Send,
         request: Request,
     ) -> None:
+        if not isinstance(raw_message, dict):
+            LOGGER.error("Invalid request: body is not a JSON object")
+            await self._send_error_response(
+                send,
+                ErrorResponseInfo(
+                    protocol_code=ErrorCode.INVALID_REQUEST,
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    message="Invalid Request: body must be a single JSON-RPC request object",
+                ),
+            )
+            return None
+
+        method = raw_message.get("method")
+        is_notification = (
+            isinstance(method, str)
+            and method.startswith("notifications/")
+            and raw_message.get("id") is None
+        )
+        if is_notification:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": HTTPStatus.ACCEPTED.value,
+                    "headers": [*_SECURITY_HEADERS],
+                },
+            )
+
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"",
+                    "more_body": False,
+                },
+            )
+            return None
+
         try:
-            if raw_message.get("method", "").startswith("notifications/"):
-                await send(
-                    {
-                        "type": "http.response.start",
-                        "status": 200,
-                        "headers": [
-                            (b"content-type", b"application/json"),
-                            *_SECURITY_HEADERS,
-                        ],
-                    },
-                )
-
-                await send(
-                    {
-                        "type": "http.response.body",
-                        "body": b"",
-                        "more_body": False,
-                    },
-                )
-                return None
-
             request_message = JSONRPCRequest.model_validate(raw_message)
         except ValidationError:
             LOGGER.exception("Error validating message")
@@ -135,7 +150,7 @@ class HTTPTransport(BaseTransport):
         request: Request,
     ) -> None:
         try:
-            response = await self._process_request(message, request)
+            response, status_code = await self._process_request(message, request)
         except InsufficientScopeError:
             await self._send_forbidden_response(send)
             return
@@ -155,7 +170,7 @@ class HTTPTransport(BaseTransport):
         await send(
             {
                 "type": "http.response.start",
-                "status": HTTPStatus.OK.value,
+                "status": status_code.value,
                 "headers": [
                     (b"content-type", b"application/json"),
                     *_SECURITY_HEADERS,

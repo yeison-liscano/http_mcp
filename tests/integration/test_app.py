@@ -44,9 +44,9 @@ def test_http_list_only_public_tools() -> None:
         "id": 1,
         "result": {
             "tools": [
-                tool.generate_json_schema() # type: ignore[attr-defined]
-                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
-                if not tool.scopes # type: ignore[attr-defined]
+                tool.generate_json_schema()  # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name)  # type: ignore[attr-defined]
+                if not tool.scopes  # type: ignore[attr-defined]
             ],
         },
     }
@@ -65,9 +65,9 @@ def test_public_and_private_tools() -> None:
         "id": 1,
         "result": {
             "tools": [
-                tool.generate_json_schema() # type: ignore[attr-defined]
-                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
-                if (not tool.scopes or tool.scopes == ("private",)) # type: ignore[attr-defined]
+                tool.generate_json_schema()  # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name)  # type: ignore[attr-defined]
+                if (not tool.scopes or tool.scopes == ("private",))  # type: ignore[attr-defined]
             ],
         },
     }
@@ -86,8 +86,8 @@ def test_private_and_superuser_tools() -> None:
         "id": 1,
         "result": {
             "tools": [
-                tool.generate_json_schema() # type: ignore[attr-defined]
-                for tool in sorted(TOOLS, key=lambda x: x.name) # type: ignore[attr-defined]
+                tool.generate_json_schema()  # type: ignore[attr-defined]
+                for tool in sorted(TOOLS, key=lambda x: x.name)  # type: ignore[attr-defined]
             ],
         },
     }
