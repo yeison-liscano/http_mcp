@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
@@ -291,7 +292,6 @@ def test_server_list_tools() -> None:
                         "idempotentHint": True,
                         "openWorldHint": True,
                     },
-                    "meta": None,
                 },
             ],
         },
@@ -329,3 +329,51 @@ def test_server_call_tool_without_context() -> None:
             "isError": False,
         },
     }
+
+
+def test_server_rejects_duplicate_tool_names() -> None:
+    with pytest.raises(ValueError, match="Duplicate tool names"):
+        MCPServer(
+            name="test",
+            version="1.0.0",
+            tools=(*TOOLS_SIMPLE_SERVER, *TOOLS_SIMPLE_SERVER),
+        )
+
+
+def test_scoped_tools_are_hidden_without_authentication_middleware() -> None:
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=(*TOOLS_SIMPLE_SERVER, *TOOLS_SIMPLE_SERVER_WITH_SCOPES),
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.OK
+    tool_names = [tool["name"] for tool in response.json()["result"]["tools"]]
+    assert tool_names == ["simple_server_tool"]
+
+
+def test_scoped_tool_call_is_denied_without_authentication_middleware() -> None:
+    server = MCPServer(
+        name="test",
+        version="1.0.0",
+        tools=TOOLS_SIMPLE_SERVER_WITH_SCOPES,
+    )
+    client = TestClient(server.app)
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "simple_server_tool_with_context",
+                "arguments": {"question": "What is the meaning of life?"},
+            },
+        },
+    )
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json() == {"error": "insufficient_scope"}

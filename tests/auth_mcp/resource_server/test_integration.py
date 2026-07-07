@@ -1,8 +1,10 @@
+import typing as t
 from http import HTTPStatus
 
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.testclient import TestClient
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from auth_mcp.authorization_server.client_store import ClientStore
 from auth_mcp.resource_server.integration import (
@@ -301,9 +303,7 @@ def test_no_client_store_returns_404() -> None:
     assert response.status_code == HTTPStatus.NOT_FOUND
 
 
-_EXPECTED_METADATA_URL = (
-    "https://mcp.example.com/.well-known/oauth-protected-resource/mcp/"
-)
+_EXPECTED_METADATA_URL = "https://mcp.example.com/.well-known/oauth-protected-resource/mcp/"
 
 
 def test_www_authenticate_resource_metadata_is_absolute_url_on_401() -> None:
@@ -354,10 +354,7 @@ def test_www_authenticate_resource_metadata_uses_origin_only() -> None:
     )
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     www_auth = response.headers["www-authenticate"]
-    expected = (
-        "https://api.example.com"
-        "/.well-known/oauth-protected-resource/mcp/"
-    )
+    expected = "https://api.example.com/.well-known/oauth-protected-resource/mcp/"
     assert f'resource_metadata="{expected}"' in www_auth
 
 
@@ -380,11 +377,9 @@ def test_www_authenticate_resource_metadata_port_included_when_present() -> None
     )
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     www_auth = response.headers["www-authenticate"]
-    expected = (
-        "http://localhost:8443"
-        "/.well-known/oauth-protected-resource/mcp/"
-    )
+    expected = "http://localhost:8443/.well-known/oauth-protected-resource/mcp/"
     assert f'resource_metadata="{expected}"' in www_auth
+
 
 def test_full_discovery_flow() -> None:
     server = MCPServer(name="test-flow", version="1.0.0", tools=_TOOLS)
@@ -413,3 +408,39 @@ def test_full_discovery_flow() -> None:
     )
     assert reg_response.status_code == HTTPStatus.CREATED
     assert "client_id" in reg_response.json()
+
+
+class _CountingMiddleware:
+    """ASGI middleware that counts how many times it processes a request."""
+
+    call_counts: t.ClassVar[list[str]] = []
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            self.call_counts.append(scope["path"])
+        await self._app(scope, receive, send)
+
+
+def test_custom_middlewares_run_once_per_request() -> None:
+    _CountingMiddleware.call_counts.clear()
+    server = MCPServer(name="test-middleware", version="1.0.0", tools=_TOOLS)
+    config = ProtectedMCPAppConfig(
+        mcp_server=server,
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        require_authentication=False,
+        middlewares=(Middleware(_CountingMiddleware),),
+    )
+    client = TestClient(create_protected_mcp_app(config))
+    response = client.post(
+        "/mcp/",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+    )
+    assert response.status_code == HTTPStatus.OK
+    assert _CountingMiddleware.call_counts == ["/mcp/"]

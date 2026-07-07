@@ -85,7 +85,7 @@ def test_notification() -> None:
         },
         headers={"Content-Type": "application/json"},
     )
-    assert response.status_code == HTTPStatus.OK
+    assert response.status_code == HTTPStatus.ACCEPTED
     assert response.text == ""
 
 
@@ -113,5 +113,54 @@ def test_invalid_message() -> None:
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
+        },
+    }
+
+
+def test_json_array_body_returns_invalid_request() -> None:
+    client = TestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json=[{"jsonrpc": "2.0", "id": 1, "method": "ping"}],
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "error": {
+            "code": ErrorCode.INVALID_REQUEST.value,
+            "message": "Invalid Request: body must be a single JSON-RPC request object",
+        },
+    }
+
+
+def test_json_scalar_body_returns_invalid_request() -> None:
+    client = TestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json="just a string",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.INVALID_REQUEST.value
+
+
+def test_notification_method_with_id_returns_method_not_found() -> None:
+    client = TestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 6, "method": "notifications/subscribe"},
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "error": {
+            "code": ErrorCode.METHOD_NOT_FOUND.value,
+            "message": "Method not supported: notifications/subscribe",
         },
     }

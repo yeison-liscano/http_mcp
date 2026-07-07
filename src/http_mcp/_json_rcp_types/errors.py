@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, computed_field
 
 
 class ErrorCode(IntEnum):
+    INVALID_REQUEST = -32600
     INVALID_PARAMS = -32602
     INTERNAL_ERROR = -32603
     METHOD_NOT_FOUND = -32601
@@ -15,7 +16,7 @@ class Error(BaseModel):
     description: str | None = Field(default=None, exclude=True)
     data: dict | None = Field(default=None)
 
-    @computed_field # type: ignore[prop-decorator]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def message(self) -> str:
         if self.description:

@@ -53,7 +53,12 @@ class _PingResult(BaseModel):
 class BaseTransport:
     supported_versions = ("2025-03-26", "2025-06-18", "2025-11-25")
     supported_methods = (
-        "initialize", "ping", "tools/list", "tools/call", "prompts/list", "prompts/get",
+        "initialize",
+        "ping",
+        "tools/list",
+        "tools/call",
+        "prompts/list",
+        "prompts/get",
     )
 
     def __init__(self, server: ServerInterface) -> None:
@@ -63,21 +68,32 @@ class BaseTransport:
         self,
         message: JSONRPCRequest,
         request: Request,
-    ) -> JSONRPCMessage:
+    ) -> tuple[JSONRPCMessage, HTTPStatus]:
         if message.method == "ping":
-            return JSONRPCResponse(jsonrpc="2.0", id=message.id, result=_PingResult())
+            ping_response = JSONRPCResponse(jsonrpc="2.0", id=message.id, result=_PingResult())
+            return ping_response, HTTPStatus.OK
         if message.method == "initialize":
-            response, _ = self._handle_initialization(message)
-            return response
+            return self._handle_initialization(message)
         if message.method.startswith("tools/"):
-            return await self._process_tools_request(message, request)
+            return await self._process_tools_request(message, request), HTTPStatus.OK
+        if message.method.startswith("prompts/"):
+            return await self._process_prompts_request(message, request), HTTPStatus.OK
 
-        return await self._process_prompts_request(message, request)
+        # Remaining validated methods (e.g. notification methods sent with an id)
+        # are not callable request methods.
+        return JSONRPCError(
+            jsonrpc="2.0",
+            id=message.id,
+            error=Error(
+                code=ErrorCode.METHOD_NOT_FOUND,
+                description=f"Method not supported: {message.method}",
+            ),
+        ), HTTPStatus.BAD_REQUEST
 
     def _handle_initialization(
         self,
         message: JSONRPCRequest,
-    ) -> tuple[InitializeResponse | JSONRPCError, int]:
+    ) -> tuple[InitializeResponse | JSONRPCError, HTTPStatus]:
         try:
             message = InitializationRequest.model_validate(message.model_dump())
         except ValidationError as e:
@@ -145,6 +161,18 @@ class BaseTransport:
 
         try:
             validated_message = PromptGetRequest.model_validate(message.model_dump())
+        except ValidationError as e:
+            LOGGER.exception("Prompt get validation error")
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=ErrorCode.INVALID_PARAMS,
+                    description=sanitize_validation_errors(e),
+                ),
+            )
+
+        try:
             prompt_result = await self._server.get_prompt(
                 validated_message.params.name,
                 validated_message.params.arguments,

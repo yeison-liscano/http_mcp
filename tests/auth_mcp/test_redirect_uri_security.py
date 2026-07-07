@@ -28,6 +28,7 @@ from auth_mcp.types.registration import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _MockClientStore(ClientStore):
     """Minimal store that echoes back the registration request."""
 
@@ -61,11 +62,7 @@ def _model_validate(
     uris: tuple[str, ...],
     allowed: frozenset[str] | None = None,
 ) -> ClientRegistrationRequest:
-    ctx = (
-        {"allowed_custom_redirect_schemes": allowed}
-        if allowed is not None
-        else None
-    )
+    ctx = {"allowed_custom_redirect_schemes": allowed} if allowed is not None else None
     return ClientRegistrationRequest.model_validate(
         {"redirect_uris": uris},
         context=ctx,
@@ -110,6 +107,7 @@ def test_disallowed_schemes_contains_minimum_set() -> None:
 # ===================================================================
 # 2. Denylist enforcement (hard invariant)
 # ===================================================================
+
 
 @pytest.mark.parametrize("scheme", sorted(DISALLOWED_REDIRECT_SCHEMES))
 def test_denylist_rejects_even_when_allowlisted(scheme: str) -> None:
@@ -179,6 +177,7 @@ def test_denylist_whitespace_variants(uri: str) -> None:
 # 3. Localhost check strictness
 # ===================================================================
 
+
 @pytest.mark.parametrize(
     "uri",
     [
@@ -244,6 +243,7 @@ def test_http_localhost_valid_forms_accepted(uri: str) -> None:
 # ===================================================================
 # 4. Allowlist plumbing — end-to-end through endpoint
 # ===================================================================
+
 
 def test_e2e_custom_scheme_cursor_accepted() -> None:
     """Custom scheme accepted end-to-end when allowlisted at init."""
@@ -326,6 +326,7 @@ def test_endpoint_init_rejects_http_https_any_case(
 # 5. Exotic URI shapes
 # ===================================================================
 
+
 def test_empty_redirect_uri_rejected() -> None:
     with pytest.raises(ValidationError, match="must be an absolute URI"):
         _model_validate(("",))
@@ -352,10 +353,12 @@ def test_query_and_fragment_preserved_on_success() -> None:
 def test_mixed_valid_and_invalid_uris_all_rejected() -> None:
     """One invalid URI in the tuple causes the whole list to fail."""
     with pytest.raises(ValidationError):
-        _model_validate((
-            "https://good.example.com/callback",
-            "javascript:alert(1)",
-        ))
+        _model_validate(
+            (
+                "https://good.example.com/callback",
+                "javascript:alert(1)",
+            ),
+        )
 
 
 def test_crlf_injection_uri_rejected_or_safe_json() -> None:
@@ -381,6 +384,7 @@ def test_crlf_injection_uri_rejected_or_safe_json() -> None:
 # ===================================================================
 # 6. Denylist at endpoint level (integration)
 # ===================================================================
+
 
 @pytest.mark.parametrize("scheme", sorted(DISALLOWED_REDIRECT_SCHEMES))
 def test_e2e_denylist_rejected_through_endpoint(scheme: str) -> None:

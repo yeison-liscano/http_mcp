@@ -51,6 +51,7 @@ def _get_registration_endpoint_path(
         return config.authorization_server_metadata.registration_endpoint.path or "/register"
     return "/register"
 
+
 def create_protected_mcp_app(
     config: ProtectedMCPAppConfig,
     **starlette_kwargs: object,
@@ -109,7 +110,6 @@ def create_protected_mcp_app(
         registration_path = _get_registration_endpoint_path(config)
         routes.append(Route(registration_path, registration_endpoint))
 
-
     routes.append(
         Mount(
             config.mcp_path,
@@ -122,14 +122,13 @@ def create_protected_mcp_app(
                 ),
                 Middleware(
                     AuthenticationMiddleware,
-                        backend=OAuthAuthenticationBackend(
+                    backend=OAuthAuthenticationBackend(
                         token_validator=config.token_validator,
                         resource_uri=str(config.resource_endpoint.resource),
                         require_authentication=config.require_authentication,
                     ),
                     on_error=on_auth_error,
                 ),
-                *config.middlewares,
             ],
         ),
     )

@@ -8,7 +8,8 @@ from http_mcp._mcp_types.content import TextContent
 
 class PromptGetRequestParams(BaseModel):
     name: str
-    arguments: dict
+    # Optional per the MCP specification: omitted for prompts that take no arguments.
+    arguments: dict = Field(default_factory=dict)
 
 
 class PromptGetRequest(JSONRPCRequest):

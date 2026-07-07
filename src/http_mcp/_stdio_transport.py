@@ -28,6 +28,18 @@ MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB, matching HTTP transport
 _MAX_LOG_LENGTH = 500
 
 
+def _is_notification(json_message: object) -> bool:
+    """Return True for JSON-RPC notifications, which must not receive a response."""
+    if not isinstance(json_message, dict):
+        return False
+    method = json_message.get("method")
+    return (
+        isinstance(method, str)
+        and method.startswith("notifications/")
+        and json_message.get("id") is None
+    )
+
+
 class StdioTransport(BaseTransport):
     def __init__(self, server: ServerInterface) -> None:
         super().__init__(server)
@@ -74,9 +86,10 @@ class StdioTransport(BaseTransport):
                 continue
 
             LOGGER.debug("Received message: %s", line[:_MAX_LOG_LENGTH])
-            json_message = {}
             try:
                 json_message = json.loads(line)
+                if _is_notification(json_message):
+                    continue
                 await self._handle_message(
                     JSONRPCRequest.model_validate(json_message),
                     writer,
@@ -143,11 +156,8 @@ class StdioTransport(BaseTransport):
         dummy_request = Request(scope)
 
         async def process(msg: JSONRPCRequest) -> JSONRPCMessage | JSONRPCError | None:
-            if msg.method.startswith("notifications/"):
-                return None
-
             try:
-                return await self._process_request(msg, dummy_request)
+                response, _ = await self._process_request(msg, dummy_request)
             except InsufficientScopeError as e:
                 required = " ".join(e.required_scopes) if e.required_scopes else "unknown"
                 return JSONRPCError(
@@ -168,6 +178,8 @@ class StdioTransport(BaseTransport):
                         description="Internal server error",
                     ),
                 )
+            else:
+                return response
 
         response = await process(message)
         if response:

@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from http_mcp._mcp_types.tools import ToolsListRequestParams
 
@@ -12,15 +13,6 @@ from http_mcp._mcp_types.tools import ToolsListRequestParams
         (42, 42),
         ("5", 5),
         ("0", 0),
-        (b"10", 10),
-        (b"0", 0),
-        ("not_a_number", None),
-        (b"not_a_number", None),
-        ("", None),
-        (3.14, None),
-        ([], None),
-        ({}, None),
-        (True, None),
     ],
     ids=[
         "none",
@@ -29,17 +21,40 @@ from http_mcp._mcp_types.tools import ToolsListRequestParams
         "int_large",
         "str_valid",
         "str_zero",
-        "bytes_valid",
-        "bytes_zero",
+    ],
+)
+def test_validate_cursor(input_value: object, expected: int | None) -> None:
+    params = ToolsListRequestParams(cursor=input_value)  # type: ignore[arg-type]
+    assert params.cursor == expected
+
+
+@pytest.mark.parametrize(
+    "input_value",
+    [
+        "not_a_number",
+        b"10",
+        b"not_a_number",
+        "",
+        3.14,
+        [],
+        {},
+        True,
+        -1,
+        "-5",
+    ],
+    ids=[
         "str_invalid",
+        "bytes",
         "bytes_invalid",
         "str_empty",
         "float",
         "list",
         "dict",
         "bool",
+        "int_negative",
+        "str_negative",
     ],
 )
-def test_validate_cursor(input_value: object, expected: int | None) -> None:
-    params = ToolsListRequestParams(cursor=input_value)  # type: ignore[arg-type]
-    assert params.cursor == expected
+def test_validate_cursor_invalid(input_value: object) -> None:
+    with pytest.raises(ValidationError, match="Invalid cursor"):
+        ToolsListRequestParams(cursor=input_value)  # type: ignore[arg-type]

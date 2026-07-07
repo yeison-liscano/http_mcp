@@ -35,7 +35,8 @@ class ToolsCallResponse(JSONRPCMessage):
 
 class ToolsCallRequestParams(BaseModel):
     name: str
-    arguments: dict[str, Any]
+    # Optional per the MCP specification: omitted for tools that take no arguments.
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolsCallRequest(JSONRPCRequest):
@@ -51,14 +52,17 @@ class ToolsListRequestParams(BaseModel):
     def validate_cursor(cls, v: object) -> int | None:
         if v is None:
             return None
-        if isinstance(v, bool):
-            return None
-        if isinstance(v, int | str | bytes):
-            try:
-                return int(v)
-            except (ValueError, TypeError):
-                return None
-        return None
+        invalid_cursor_msg = "Invalid cursor"
+        if isinstance(v, bool) or not isinstance(v, int | str):
+            # ValueError (not TypeError) so pydantic reports it as a validation error
+            raise ValueError(invalid_cursor_msg)  # noqa: TRY004
+        try:
+            cursor = int(v)
+        except ValueError as e:
+            raise ValueError(invalid_cursor_msg) from e
+        if cursor < 0:
+            raise ValueError(invalid_cursor_msg)
+        return cursor
 
 
 class ToolsListRequest(JSONRPCRequest):
