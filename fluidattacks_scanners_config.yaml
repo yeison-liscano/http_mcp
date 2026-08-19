@@ -16,7 +16,6 @@ sast:
     - .git/
     - src/__pycache__/
     - tests/__pycache__/
-  recursion-limit: 1000
 
 sca:
   include:
