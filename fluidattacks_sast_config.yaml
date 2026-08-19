@@ -32,8 +32,3 @@ sast:
     - glob(**/*.pyc)          # All Python bytecode files
     - glob(**/*.pyo)          # All optimized bytecode files
     - glob(**/*_cache/)       # All cache directories
-
-  # Recursion limit to prevent long analysis times
-  # Recommended value: 1000
-  recursion-limit: 1000
-
