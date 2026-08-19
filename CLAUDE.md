@@ -67,16 +67,25 @@ the same wheel (`http-mcp`); `auth_mcp` is available via
   - `NoArguments` — Empty Pydantic model for tools/prompts without parameters.
 - **`exceptions.py`** — Exception hierarchy: `BaseError` → `ProtocolError`,
   `ServerError` (with `ToolNotFoundError`, `ToolInvocationError`,
-  `PromptNotFoundError`, `PromptInvocationError`), `ArgumentsError`.
+  `PromptNotFoundError`, `PromptInvocationError`), `ArgumentsError`. Error codes
+  live in `_json_rcp_types/errors.py`; `-32002` was retired by the 2026-07-28
+  revision and must not be reintroduced.
 
 ### Internal Modules (prefixed with `_`)
 
-- **`_transport_http.py`** / **`_transport_base.py`** — HTTP transport (ASGI,
-  4MB max message, content-type validation).
+- **`_transport_base.py`** — Dual-era dispatch. Routes each request to the
+  *modern* (`2026-07-28`, stateless) or *legacy* (`initialize`-based) path via
+  `is_modern_request`, validates modern `_meta`, serves `server/discover`, and
+  stamps `resultType`/`_meta`/caching hints onto modern results only.
+- **`_transport_http.py`** — HTTP transport (ASGI, 4MB max message, content-type
+  validation, `Origin` allowlist, and `MCP-Protocol-Version`/`Mcp-Method`/
+  `Mcp-Name`/`Mcp-Param-*` header-to-body validation for modern requests).
 - **`_stdio_transport.py`** — STDIO transport (line-based JSON-RPC over
   stdin/stdout).
 - **`_mcp_types/`** — MCP protocol types (capabilities, messages, tools,
-  prompts, content). Supported versions: 2025-03-26, 2025-06-18, 2025-11-25.
+  prompts, content, plus `versions`, `meta`, `results`, `discover`, `headers`).
+  Supported versions: 2026-07-28 (modern), 2025-11-25, 2025-06-18, 2025-03-26
+  (legacy). See the README's "Protocol Versions" section for what differs.
 - **`_json_rcp_types/`** — JSON-RPC message and error types.
 
 ### auth_mcp Package (`src/auth_mcp/`)

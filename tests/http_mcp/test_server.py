@@ -91,7 +91,6 @@ def test_server_capabilities_with_tools() -> None:
     capabilities = server.capabilities
     assert capabilities.tools is not None
     assert capabilities.tools.list_changed is False
-    assert capabilities.tools.subscribe is False
     assert capabilities.prompts is None
 
 
@@ -129,7 +128,7 @@ def test_protocol_initialization() -> None:
         "result": {
             "protocolVersion": "2025-06-18",
             "capabilities": {
-                "tools": {"listChanged": False, "subscribe": False},
+                "tools": {"listChanged": False},
             },
             "serverInfo": {
                 "name": "protocol_test_initialization",

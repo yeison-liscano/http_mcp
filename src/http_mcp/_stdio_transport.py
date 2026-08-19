@@ -164,7 +164,7 @@ class StdioTransport(BaseTransport):
                     jsonrpc="2.0",
                     id=msg.id,
                     error=Error(
-                        code=ErrorCode.RESOURCE_NOT_FOUND,
+                        code=ErrorCode.INVALID_PARAMS,
                         description=f"Insufficient scope; required: {required}",
                     ),
                 )

@@ -5,11 +5,14 @@ from starlette.types import Receive, Scope, Send
 
 from http_mcp._mcp_types.capabilities import Capability, ServerCapabilities
 from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
+from http_mcp._mcp_types.results import CacheScope
 from http_mcp._stdio_transport import StdioTransport
 from http_mcp._transport_http import HTTPTransport
 from http_mcp.exceptions import InsufficientScopeError, PromptNotFoundError, ToolNotFoundError
 from http_mcp.server_interface import ServerInterface
 from http_mcp.types import Prompt, Tool
+
+DEFAULT_CACHE_TTL_MS = 300_000
 
 
 def _check_scope(request: Request, scopes: tuple[str, ...]) -> bool:
@@ -33,23 +36,59 @@ def _ensure_unique_names(feature_type: str, names: tuple[str, ...]) -> None:
 
 
 class MCPServer(ServerInterface):
-    def __init__(
+    """An MCP server exposing Python functions as tools and prompts.
+
+    Args:
+        name: Server name reported to clients.
+        version: Server version reported to clients.
+        tools: Tools to expose.
+        prompts: Prompts to expose.
+        instructions: Optional guidance for the model on using this server.
+        cache_ttl_ms: Freshness hint, in milliseconds, sent with `tools/list`,
+            `prompts/list`, and `server/discover` results. Tools and prompts are fixed
+            when the server is constructed, so this really bounds how long a client may
+            miss a redeploy. Use 0 to tell clients never to cache.
+        cache_scope: Whether shared caches may serve those results across
+            authorization contexts. Defaults to "private" when any tool or prompt is
+            scope-restricted (the list then varies by caller) and "public" otherwise.
+        allowed_origins: Origins the HTTP transport accepts. Empty (the default)
+            disables the check. Set this when the server is reachable from a browser:
+            it is the defence against DNS rebinding.
+
+    """
+
+    def __init__(  # noqa: PLR0913
         self,
         name: str,
         version: str,
         tools: tuple[Tool, ...] = (),
         prompts: tuple[Prompt, ...] = (),
         instructions: str | None = None,
+        cache_ttl_ms: int = DEFAULT_CACHE_TTL_MS,
+        cache_scope: CacheScope | None = None,
+        allowed_origins: tuple[str, ...] = (),
     ) -> None:
         _ensure_unique_names("tool", tuple(_tool.name for _tool in tools))
         _ensure_unique_names("prompt", tuple(_prompt.name for _prompt in prompts))
+        if cache_ttl_ms < 0:
+            msg = "cache_ttl_ms must be greater than or equal to 0"
+            raise ValueError(msg)
         self._version = version
         self._name = name
         self._tools = tools
         self._prompts = prompts
         self._instructions = instructions
+        self._cache_ttl_ms = cache_ttl_ms
+        self._cache_scope: CacheScope = cache_scope or self._derive_cache_scope()
+        self._allowed_origins = allowed_origins
         self._http_transport = HTTPTransport(self)
         self._stdio_transport = StdioTransport(self)
+
+    def _derive_cache_scope(self) -> CacheScope:
+        is_scoped = any(_tool.scopes for _tool in self._tools) or any(
+            _prompt.scopes for _prompt in self._prompts
+        )
+        return "private" if is_scoped else "public"
 
     async def app(self, scope: Scope, receive: Receive, send: Send) -> None:
         await self._http_transport.handle_request(scope, receive, send)
@@ -70,11 +109,29 @@ class MCPServer(ServerInterface):
         return self._instructions
 
     @property
+    def cache_ttl_ms(self) -> int:
+        return self._cache_ttl_ms
+
+    @property
+    def cache_scope(self) -> CacheScope:
+        return self._cache_scope
+
+    @property
+    def allowed_origins(self) -> tuple[str, ...]:
+        return self._allowed_origins
+
+    @property
     def capabilities(self) -> ServerCapabilities:
-        capability = Capability(list_changed=False, subscribe=False)
+        capability = Capability(list_changed=False)
         return ServerCapabilities(
             prompts=capability if self._prompts else None,
             tools=capability if self._tools else None,
+        )
+
+    def get_tool_input_schema(self, tool_name: str) -> dict | None:
+        return next(
+            (_tool.input_schema for _tool in self._tools if _tool.name == tool_name),
+            None,
         )
 
     def list_tools(self, request: Request) -> tuple[dict, ...]:

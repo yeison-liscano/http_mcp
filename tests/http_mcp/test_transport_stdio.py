@@ -46,8 +46,8 @@ async def test_studio_transport() -> None:
         "result": {
             "serverInfo": {"name": "test", "version": "1.0.0"},
             "capabilities": {
-                "prompts": {"listChanged": False, "subscribe": False},
-                "tools": {"listChanged": False, "subscribe": False},
+                "prompts": {"listChanged": False},
+                "tools": {"listChanged": False},
             },
             "protocolVersion": "2025-06-18",
         },
