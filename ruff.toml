@@ -14,6 +14,8 @@ ignore = [
     "D104",
     "D107",
     "EM101",
+    # Licensing is declared in LICENSE and pyproject, not in per-file headers.
+    "CPY001",
 ]
 fixable = ["ALL"]
 unfixable = []
