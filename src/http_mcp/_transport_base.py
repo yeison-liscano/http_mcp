@@ -1,5 +1,6 @@
 import logging
 from http import HTTPStatus
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
@@ -12,11 +13,18 @@ from http_mcp._json_rcp_types.messages import (
     JSONRPCResponse,
 )
 from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.discover import DiscoverResponse, DiscoverResult
 from http_mcp._mcp_types.messages import (
     InitializationRequest,
     InitializeResponse,
     InitializeResponseResult,
     ServerInfo,
+)
+from http_mcp._mcp_types.meta import (
+    META_PROTOCOL_VERSION,
+    Implementation,
+    RequestMeta,
+    ResultMeta,
 )
 from http_mcp._mcp_types.prompts import (
     PromptGetRequest,
@@ -24,6 +32,7 @@ from http_mcp._mcp_types.prompts import (
     PromptsGetResponse,
     PromptsListResponse,
 )
+from http_mcp._mcp_types.results import CacheableResult, Result
 from http_mcp._mcp_types.tools import (
     ToolsCallRequest,
     ToolsCallResponse,
@@ -31,6 +40,11 @@ from http_mcp._mcp_types.tools import (
     ToolsListRequest,
     ToolsListResponse,
     ToolsListResult,
+)
+from http_mcp._mcp_types.versions import (
+    LEGACY_PROTOCOL_VERSIONS,
+    MODERN_PROTOCOL_VERSIONS,
+    SUPPORTED_PROTOCOL_VERSIONS,
 )
 from http_mcp.exceptions import (
     PromptInvocationError,
@@ -45,16 +59,46 @@ LOGGER = logging.getLogger(__name__)
 
 TOOLS_CHUNK_SIZE = 100
 
+PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
+
 
 class _PingResult(BaseModel):
     pass
 
 
+def request_meta(params: object) -> dict[str, Any]:
+    """Return the ``_meta`` block of a request's params, or an empty mapping."""
+    if isinstance(params, dict):
+        meta = params.get("_meta")
+        if isinstance(meta, dict):
+            return meta
+    return {}
+
+
 class BaseTransport:
-    supported_versions = ("2025-03-26", "2025-06-18", "2025-11-25")
+    """Dispatch shared by the HTTP and STDIO transports.
+
+    The server is dual-era. Revision ``2026-07-28`` and later are *modern*: stateless,
+    with the protocol version and client capabilities restated in every request's
+    ``_meta``. Revisions ``2025-11-25`` and earlier are *legacy*: they open with an
+    ``initialize`` handshake. Each request is routed to one era or the other; see
+    :meth:`is_modern_request`.
+    """
+
+    legacy_versions = LEGACY_PROTOCOL_VERSIONS
+    modern_versions = MODERN_PROTOCOL_VERSIONS
+    supported_versions = SUPPORTED_PROTOCOL_VERSIONS
     supported_methods = (
         "initialize",
         "ping",
+        "server/discover",
+        "tools/list",
+        "tools/call",
+        "prompts/list",
+        "prompts/get",
+    )
+    modern_methods = (
+        "server/discover",
         "tools/list",
         "tools/call",
         "prompts/list",
@@ -64,7 +108,65 @@ class BaseTransport:
     def __init__(self, server: ServerInterface) -> None:
         self._server = server
 
+    # ------------------------------------------------------------------
+    # Era selection
+    # ------------------------------------------------------------------
+
+    def is_modern_request(self, method: str, params: object, header_version: str | None) -> bool:
+        """Decide whether a request is served under the modern, stateless rules.
+
+        ``server/discover`` exists only in the modern era, and a ``_meta`` protocol
+        version is a key no legacy revision defines, so either one settles it. The
+        header alone is enough for a modern client whose body is malformed: routing it
+        here is what surfaces the missing ``_meta`` as an error rather than silently
+        serving it under legacy semantics.
+        """
+        if method == "server/discover":
+            return True
+        if META_PROTOCOL_VERSION in request_meta(params):
+            return True
+        return header_version in self.modern_versions
+
+    # ------------------------------------------------------------------
+    # Dispatch
+    # ------------------------------------------------------------------
+
     async def _process_request(
+        self,
+        message: JSONRPCRequest,
+        request: Request,
+    ) -> tuple[JSONRPCMessage, HTTPStatus]:
+        header_version = request.headers.get(PROTOCOL_VERSION_HEADER)
+        if self.is_modern_request(message.method, message.params, header_version):
+            return await self._process_modern_request(message, request)
+        return await self._process_legacy_request(message, request)
+
+    async def _process_modern_request(
+        self,
+        message: JSONRPCRequest,
+        request: Request,
+    ) -> tuple[JSONRPCMessage, HTTPStatus]:
+        meta = self._validate_request_meta(message)
+        if isinstance(meta, JSONRPCError):
+            return meta, HTTPStatus.BAD_REQUEST
+
+        if message.method == "server/discover":
+            return self._handle_discover(message), HTTPStatus.OK
+
+        response: JSONRPCMessage
+        if message.method.startswith("tools/"):
+            response = await self._process_tools_request(message, request)
+        elif message.method.startswith("prompts/"):
+            response = await self._process_prompts_request(message, request)
+        else:
+            # `initialize`, `ping`, and the notification methods were removed by this
+            # revision; on HTTP an unknown method is a 404, not a 400.
+            return self._method_not_found(message), HTTPStatus.NOT_FOUND
+
+        self._annotate_response(response)
+        return response, HTTPStatus.OK
+
+    async def _process_legacy_request(
         self,
         message: JSONRPCRequest,
         request: Request,
@@ -81,6 +183,9 @@ class BaseTransport:
 
         # Remaining validated methods (e.g. notification methods sent with an id)
         # are not callable request methods.
+        return self._method_not_found(message), HTTPStatus.BAD_REQUEST
+
+    def _method_not_found(self, message: JSONRPCRequest) -> JSONRPCError:
         return JSONRPCError(
             jsonrpc="2.0",
             id=message.id,
@@ -88,7 +193,75 @@ class BaseTransport:
                 code=ErrorCode.METHOD_NOT_FOUND,
                 description=f"Method not supported: {message.method}",
             ),
-        ), HTTPStatus.BAD_REQUEST
+        )
+
+    # ------------------------------------------------------------------
+    # Modern request metadata and results
+    # ------------------------------------------------------------------
+
+    def _validate_request_meta(self, message: JSONRPCRequest) -> RequestMeta | JSONRPCError:
+        """Validate the ``_meta`` every modern request must carry."""
+        try:
+            meta = RequestMeta.model_validate(request_meta(message.params))
+        except ValidationError as e:
+            LOGGER.warning("Request _meta validation error for %s", message.method)
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=ErrorCode.INVALID_PARAMS,
+                    description=f"Invalid request _meta: {sanitize_validation_errors(e)}",
+                ),
+            )
+
+        if meta.protocol_version not in self.modern_versions:
+            LOGGER.error("Unsupported protocol version: %s", meta.protocol_version)
+            return JSONRPCError(
+                jsonrpc="2.0",
+                id=message.id,
+                error=Error(
+                    code=ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+                    description="Unsupported protocol version",
+                    data={
+                        "supported": list(self.supported_versions),
+                        "requested": meta.protocol_version,
+                    },
+                ),
+            )
+        return meta
+
+    def _handle_discover(self, message: JSONRPCRequest) -> DiscoverResponse:
+        return DiscoverResponse(
+            jsonrpc="2.0",
+            id=message.id,
+            result=self._annotate_result(
+                DiscoverResult(
+                    supported_versions=self.supported_versions,
+                    capabilities=self._server.capabilities,
+                    instructions=self._server.instructions,
+                ),
+            ),
+        )
+
+    def _annotate_response(self, response: JSONRPCMessage) -> None:
+        """Attach the modern result fields, if this response carries a result."""
+        result = getattr(response, "result", None)
+        if isinstance(result, Result):
+            self._annotate_result(result)
+
+    def _annotate_result[T: Result](self, result: T) -> T:
+        result.result_type = "complete"
+        result.meta = ResultMeta(
+            server_info=Implementation(name=self._server.name, version=self._server.version),
+        )
+        if isinstance(result, CacheableResult):
+            result.ttl_ms = self._server.cache_ttl_ms
+            result.cache_scope = self._server.cache_scope
+        return result
+
+    # ------------------------------------------------------------------
+    # Legacy initialization
+    # ------------------------------------------------------------------
 
     def _handle_initialization(
         self,
@@ -110,7 +283,7 @@ class BaseTransport:
         status_code = HTTPStatus.OK
         response: InitializeResponse | JSONRPCError
 
-        if protocol_version in self.supported_versions:
+        if protocol_version in self.legacy_versions:
             response = InitializeResponse(
                 jsonrpc="2.0",
                 id=message.id,
@@ -139,12 +312,18 @@ class BaseTransport:
                     code=ErrorCode.INVALID_PARAMS,
                     description="Unsupported protocol version",
                     data={
-                        "supported": list(self.supported_versions),
+                        # `initialize` exists only in the legacy era, so a legacy client
+                        # can act only on the versions that still offer the handshake.
+                        "supported": list(self.legacy_versions),
                         "requested": protocol_version,
                     },
                 ),
             )
         return response, status_code
+
+    # ------------------------------------------------------------------
+    # Features
+    # ------------------------------------------------------------------
 
     async def _process_prompts_request(
         self,

@@ -44,7 +44,7 @@ class ToolNotFoundError(ServerError):
     def __init__(self, tool_name: str) -> None:
         super().__init__(
             Error(
-                code=ErrorCode.RESOURCE_NOT_FOUND,
+                code=ErrorCode.INVALID_PARAMS,
                 description=f"Tool {_safe_name(tool_name)} not found",
             ),
         )
@@ -64,7 +64,7 @@ class PromptNotFoundError(ServerError):
     def __init__(self, prompt_name: str) -> None:
         super().__init__(
             Error(
-                code=ErrorCode.RESOURCE_NOT_FOUND,
+                code=ErrorCode.INVALID_PARAMS,
                 description=f"Prompt {_safe_name(prompt_name)} not found",
             ),
         )

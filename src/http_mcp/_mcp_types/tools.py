@@ -4,9 +4,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
 from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.results import CacheableResult, Result
 
 
-class ToolsListResult(BaseModel):
+class ToolsListResult(CacheableResult):
     tools: tuple[dict, ...]
     next_cursor: str | None = Field(
         serialization_alias="nextCursor",
@@ -19,7 +20,7 @@ class ToolsListResponse(JSONRPCMessage):
     result: ToolsListResult
 
 
-class ToolsCallResult(BaseModel):
+class ToolsCallResult(Result):
     content: tuple[TextContent, ...]
     is_error: bool = Field(serialization_alias="isError", alias_priority=1)
     structured_content: dict[str, Any] | None = Field(

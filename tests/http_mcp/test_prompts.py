@@ -364,7 +364,7 @@ def test_prompt_not_found() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ErrorCode.RESOURCE_NOT_FOUND.value,
+            "code": ErrorCode.INVALID_PARAMS.value,
             "message": "Prompt not_found not found",
         },
     }

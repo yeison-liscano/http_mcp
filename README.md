@@ -11,6 +11,11 @@ It is intended to be used with a Starlette or FastAPI application (see
 - [Features](#features)
 - [Installation](#installation)
 - [Server Architecture](#server-architecture)
+- [Protocol Versions](#protocol-versions)
+  - [What Changed in 2026-07-28](#what-changed-in-2026-07-28)
+  - [Caching Hints](#caching-hints)
+  - [Origin Validation](#origin-validation)
+  - [Mirroring Tool Parameters into Headers](#mirroring-tool-parameters-into-headers)
 - [Tools](#tools)
   - [Basic Tool Example](#basic-tool-example)
   - [Tools Without Arguments](#tools-without-arguments)
@@ -34,6 +39,11 @@ It is intended to be used with a Starlette or FastAPI application (see
 
 - **MCP Protocol Compliant**: Implements the MCP specification for tool and
   prompts discovery and execution. No support for notifications.
+- **Dual-Era Protocol Support**: Serves the stateless `2026-07-28` revision
+  (`server/discover`, per-request `_meta`, no handshake) alongside the
+  handshake-based `2025-11-25`, `2025-06-18`, and `2025-03-26` revisions. Each
+  request is routed to the era it declares, so old and new clients can share one
+  endpoint.
 - **HTTP and STDIO Transport**: Uses HTTP (POST requests) or STDIO for
   communication.
 - **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request
@@ -80,6 +90,15 @@ managing shared server state.
   tuple)
 - `instructions` (str | None): Optional instructions for AI assistants on how to
   use this server
+- `cache_ttl_ms` (int): Freshness hint in milliseconds sent with `tools/list`,
+  `prompts/list`, and `server/discover` results (default: `300000`). Use `0` to
+  tell clients never to cache. See [Caching Hints](#caching-hints).
+- `cache_scope` ("public" | "private" | None): Whether shared caches may reuse
+  those results across authorization contexts. Derived automatically when
+  omitted. See [Caching Hints](#caching-hints).
+- `allowed_origins` (tuple[str, ...]): Origins the HTTP transport accepts
+  (default: empty, meaning the check is disabled). See
+  [Origin Validation](#origin-validation).
 
 **Example Usage:**
 
@@ -114,6 +133,167 @@ mcp_server = MCPServer(
 app = Starlette(lifespan=lifespan)
 app.mount("/mcp", mcp_server.app)
 ```
+
+## Protocol Versions
+
+The server implements four protocol revisions and picks between them per
+request, so a single endpoint serves both old and new clients:
+
+| Revision | Era | Opens with | | ------------ | ------ |
+------------------------------------ | | `2026-07-28` | modern | nothing — every
+request is stateless | | `2025-11-25` | legacy | `initialize` handshake | |
+`2025-06-18` | legacy | `initialize` handshake | | `2025-03-26` | legacy |
+`initialize` handshake |
+
+A request is served under the modern rules when it calls `server/discover`, when
+its `params._meta` carries `io.modelcontextprotocol/protocolVersion`, or when
+its `MCP-Protocol-Version` header names a modern revision. Everything else —
+notably `initialize` — is served under the legacy rules, exactly as before.
+**Existing clients need no changes.**
+
+### What Changed in 2026-07-28
+
+The revision removed the session concept entirely. In practice:
+
+- **No handshake.** `initialize` and `notifications/initialized` are gone. Every
+  request restates its protocol version and the client's capabilities in
+  `_meta`:
+
+  ```json
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "get_weather",
+      "arguments": { "location": "Seattle, WA" },
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": { "name": "ExampleClient", "version": "1.0.0" },
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
+    }
+  }
+  ```
+
+  `protocolVersion` and `clientCapabilities` are required; omitting either gets
+  a `-32602` and HTTP 400. An unsupported version gets a `-32022` whose
+  `data.supported` lists every revision this server speaks.
+
+- **`server/discover` replaces `initialize` for capability discovery.** It
+  reports the supported versions, capabilities, instructions, and server
+  identity in one call, and is answered without any prior request:
+
+  ```json
+  {
+    "resultType": "complete",
+    "supportedVersions": ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"],
+    "capabilities": { "tools": { "listChanged": false }, "prompts": { "listChanged": false } },
+    "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "my-server", "version": "1.0.0" } },
+    "ttlMs": 300000,
+    "cacheScope": "public"
+  }
+  ```
+
+- **Every result carries `resultType: "complete"`** and a `_meta` block naming
+  the server. Legacy responses are unchanged and carry neither.
+
+- **`ping` was removed**, along with `logging/setLevel` and the session and SSE
+  resumption machinery. Under the modern era these return `-32601` with HTTP
+  404; legacy clients can still call `ping`.
+
+- **Required request headers.** Modern POSTs must send `MCP-Protocol-Version`
+  and `Mcp-Method`, plus `Mcp-Name` on `tools/call` and `prompts/get`. Each must
+  match the corresponding body value, or the request is rejected with `-32020`
+  (`HeaderMismatch`) and HTTP 400 — this stops a proxy routing on one value
+  while the server acts on another. Values that cannot be expressed as plain
+  ASCII use the `=?base64?...?=` envelope, which the server decodes before
+  comparing.
+
+- **Unknown tools and prompts now report `-32602`** instead of `-32002`, which
+  the revision retired. This applies on every revision, since `-32602` is what
+  the tools and prompts specs always prescribed.
+
+- **`Mcp-Session-Id` and `Last-Event-ID` are ignored**, and `GET`/`DELETE` on
+  the MCP endpoint return `405 Method Not Allowed`.
+
+Multi round-trip requests (elicitation, sampling, roots) and
+`subscriptions/listen` are not implemented: this server exposes no
+client-input-dependent features and declares `listChanged: false`, so neither
+applies to it.
+
+### Caching Hints
+
+Modern `tools/list`, `prompts/list`, and `server/discover` results carry `ttlMs`
+and `cacheScope` so clients can avoid re-fetching a list that has not changed:
+
+```python
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=my_tools,
+    cache_ttl_ms=300_000,   # clients may treat the list as fresh for 5 minutes
+    cache_scope="public",   # shared caches may serve it to any caller
+)
+```
+
+Tools and prompts are fixed when `MCPServer` is constructed, so `ttlMs` really
+bounds how long a client may miss a redeploy rather than how long the data is
+stable. Set it to `0` to ask clients never to cache.
+
+`cache_scope` is derived when you omit it: `"private"` if any tool or prompt is
+scope-restricted — the list then varies per caller, so a shared cache must not
+reuse it across authorization contexts — and `"public"` otherwise. Override it
+if your deployment knows better. Note that `cacheScope` governs caching only; it
+is never a substitute for the per-tool scope checks.
+
+### Origin Validation
+
+Browsers attach an `Origin` header, which is what lets a server refuse requests
+smuggled in by DNS rebinding. The check is off by default so existing
+deployments keep working; turn it on wherever the endpoint is reachable from a
+browser:
+
+```python
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=my_tools,
+    allowed_origins=("https://app.example.com",),
+)
+```
+
+A request whose `Origin` is present and not on the list gets `403 Forbidden`.
+Requests with no `Origin` at all — ordinary non-browser clients — are
+unaffected. When running locally, also bind to `127.0.0.1` rather than
+`0.0.0.0`.
+
+### Mirroring Tool Parameters into Headers
+
+A tool can ask clients to copy specific argument values into `Mcp-Param-*`
+headers, so proxies can route or rate-limit on them without parsing the body.
+Annotate the field with `x-mcp-header`:
+
+```python
+from pydantic import BaseModel, Field
+
+class ExecuteSQLInput(BaseModel):
+    region: str = Field(
+        description="The region to execute the query in",
+        json_schema_extra={"x-mcp-header": "Region"},
+    )
+    query: str = Field(description="The SQL query to execute")
+```
+
+A conforming client then sends `Mcp-Param-Region: us-west1` alongside the call,
+and the server verifies it against the body — rejecting the request with
+`-32020` if the header is missing, contradicts the argument, or is sent when the
+argument is absent. `Mcp-Param-*` headers that no annotation claims are ignored,
+as intermediaries are expected to forward unrecognised ones untouched.
+
+Only `string`, `integer`, and `boolean` fields reachable through a plain chain
+of object properties can be annotated. Do not annotate sensitive values: header
+contents are visible to every intermediary on the path.
 
 ## Tools
 

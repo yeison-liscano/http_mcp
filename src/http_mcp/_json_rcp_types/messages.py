@@ -18,6 +18,7 @@ class JSONRPCRequest(JSONRPCMessage):
         "prompts/get",
         "tools/list",
         "tools/call",
+        "server/discover",
         "initialize",
         "ping",
         "notifications/subscribe",
