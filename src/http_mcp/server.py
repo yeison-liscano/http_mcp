@@ -64,6 +64,7 @@ class MCPServer(ServerInterface):
         tools: tuple[Tool, ...] = (),
         prompts: tuple[Prompt, ...] = (),
         instructions: str | None = None,
+        *,
         cache_ttl_ms: int = DEFAULT_CACHE_TTL_MS,
         cache_scope: CacheScope | None = None,
         allowed_origins: tuple[str, ...] = (),
