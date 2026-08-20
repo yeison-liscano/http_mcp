@@ -1,7 +1,6 @@
 from http import HTTPStatus
 
 from pydantic import BaseModel, Field
-from starlette.testclient import TestClient
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp.exceptions import ServerError, ToolInvocationError
@@ -9,6 +8,7 @@ from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, NoArguments, Tool
 from tests.fixtures.context import Context
 from tests.fixtures.main import mount_mcp_server
+from tests.fixtures.protocol import MCPTestClient, without_envelope
 
 # ---------------------------------------------------------------------------
 # Models and helper tools from test_tools_methods.py
@@ -139,14 +139,14 @@ def test_list_tools() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -362,7 +362,7 @@ def test_server_call_tools() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server)
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         response_1 = client.post(
             "/mcp",
             json={
@@ -377,7 +377,7 @@ def test_server_call_tools() -> None:
         )
         assert response_1.status_code == HTTPStatus.OK
         response_json = response_1.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -408,7 +408,7 @@ def test_server_call_tools() -> None:
 
         assert response_2.status_code == HTTPStatus.OK
         response_json = response_2.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -438,7 +438,7 @@ def test_server_call_tools() -> None:
         )
         assert response_3.status_code == HTTPStatus.OK
         response_json = response_3.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 3,
             "result": {
@@ -463,7 +463,7 @@ def test_server_call_tools() -> None:
         )
         assert response_4.status_code == HTTPStatus.OK
         response_json = response_4.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 4,
             "result": {
@@ -485,7 +485,7 @@ def test_server_call_tool_with_invalid_arguments() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={
@@ -528,7 +528,7 @@ def test_server_call_tool_with_error() -> None:
         name="test",
         version="1.0.0",
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
 
     for tool in (tool_that_raises_error, tool_without_arguments_that_raises_error):
         response = client.post(
@@ -547,7 +547,7 @@ def test_server_call_tool_with_error() -> None:
         )
         assert response.status_code == HTTPStatus.OK
         response_json = response.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -569,7 +569,7 @@ def test_tool_not_found() -> None:
         version="1.0.0",
         prompts=(),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
@@ -610,7 +610,7 @@ def test_tools_list_pagination_returns_next_cursor() -> None:
         tool.func.__doc__ = f"Tool {i}."
 
     server = MCPServer(name="test", version="1.0.0", tools=tools)
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
 
     response = client.post(
         "/mcp",
@@ -654,7 +654,7 @@ def test_get_state_key_missing_key_raises_server_error() -> None:
         ),
     )
     app = mount_mcp_server(server)
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         response = client.post(
             "/mcp",
             json={
@@ -682,7 +682,7 @@ def test_tool_without_args_reraises_server_error() -> None:
         version="1.0.0",
         tools=(Tool(func=tool_raising_server_error, inputs=type(None), output=SimpleOutput),),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
@@ -710,7 +710,7 @@ def test_tool_with_args_reraises_server_error() -> None:
         version="1.0.0",
         tools=(Tool(func=tool_raising_server_error, inputs=NoArguments, output=SimpleOutput),),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
@@ -745,7 +745,7 @@ def test_tool_returns_error_message_when_configured() -> None:
             ),
         ),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={

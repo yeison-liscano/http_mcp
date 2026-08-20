@@ -13,19 +13,19 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from pydantic import BaseModel, Field
 from starlette.applications import Starlette
-from starlette.testclient import TestClient
 
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, NoArguments, Tool
 from tests.fixtures.context import Context
 from tests.fixtures.main import mount_mcp_server, mount_mcp_server_multi_state
+from tests.fixtures.protocol import MCPTestClient
 from tests.fixtures.tools import STATEFUL_TOOLS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
-def _call_tool(client: TestClient, name: str, arguments: dict[str, str]) -> dict[str, Any]:
+def _call_tool(client: MCPTestClient, name: str, arguments: dict[str, str]) -> dict[str, Any]:
     response = client.post(
         "/mcp",
         json={
@@ -43,7 +43,7 @@ def test_tool_reads_state_written_by_another_tool() -> None:
     server = MCPServer(tools=STATEFUL_TOOLS, name="test", version="1.0.0")
     app = mount_mcp_server(server)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         # Write a note
         add_result = _call_tool(client, "add_note", {"topic": "python", "note": "use type hints"})
         assert add_result["result"]["isError"] is False
@@ -63,7 +63,7 @@ def test_multiple_writes_accumulate_in_shared_state() -> None:
     server = MCPServer(tools=STATEFUL_TOOLS, name="test", version="1.0.0")
     app = mount_mcp_server(server)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         # Add two notes to the same topic
         _call_tool(client, "add_note", {"topic": "python", "note": "use type hints"})
         _call_tool(client, "add_note", {"topic": "python", "note": "prefer immutability"})
@@ -97,7 +97,7 @@ def test_state_isolation_between_sessions() -> None:
     app_1 = mount_mcp_server(server)
     app_2 = mount_mcp_server(server)
 
-    with TestClient(app_1) as client_1, TestClient(app_2) as client_2:
+    with MCPTestClient(app_1) as client_1, MCPTestClient(app_2) as client_2:
         # Write a note in session 1
         _call_tool(client_1, "add_note", {"topic": "python", "note": "session 1 note"})
 
@@ -142,7 +142,7 @@ def test_multiple_state_keys_on_same_lifespan() -> None:
     server = MCPServer(tools=tools, name="test", version="1.0.0")
     app = mount_mcp_server_multi_state(server)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         # Write to secondary context
         _call_tool(client, "write_to_secondary", {})
 
@@ -171,7 +171,7 @@ def test_state_with_async_initialization() -> None:
     app = Starlette(lifespan=async_lifespan)
     app.mount("/mcp", server.app)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         # The async-initialized value should be available
         result = _call_tool(client, "get_cache", {"key": "initialized"})
         assert result["result"]["structuredContent"]["value"] == "true"
@@ -181,7 +181,7 @@ def test_cache_miss_returns_none() -> None:
     server = MCPServer(tools=STATEFUL_TOOLS, name="test", version="1.0.0")
     app = mount_mcp_server(server)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         result = _call_tool(client, "get_cache", {"key": "nonexistent"})
         assert result["result"]["isError"] is False
         assert result["result"]["structuredContent"]["value"] is None
@@ -206,7 +206,7 @@ def test_get_state_key_type_mismatch_raises_server_error() -> None:
     )
     app = mount_mcp_server(server)
 
-    with TestClient(app) as client:
+    with MCPTestClient(app) as client:
         result = _call_tool(client, "tool_with_wrong_type", {})
         assert result["result"]["isError"] is True
         error_text = result["result"]["content"][0]["text"]

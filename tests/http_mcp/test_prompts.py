@@ -2,7 +2,6 @@ from http import HTTPStatus
 
 import pytest
 from pydantic import BaseModel, Field
-from starlette.testclient import TestClient
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp._mcp_types.content import TextContent
@@ -11,6 +10,7 @@ from http_mcp.exceptions import ServerError
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, NoArguments, Prompt
 from tests.fixtures.main import BasicAuthBackend, mount_mcp_server
+from tests.fixtures.protocol import MCPTestClient, without_envelope
 
 # ---------------------------------------------------------------------------
 # Models and helper prompts from test_prompts_methods.py
@@ -110,10 +110,10 @@ def test_prompt_list(prompt: Prompt) -> None:
         version="1.0.0",
         prompts=(prompt,),
     )
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -168,7 +168,7 @@ def test_prompt_get(prompt: Prompt) -> None:
         version="1.0.0",
         prompts=(prompt,),
     )
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
         "/mcp",
         json={
@@ -191,7 +191,7 @@ def test_prompt_get(prompt: Prompt) -> None:
 
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "id": 1,
         "jsonrpc": "2.0",
         "result": {
@@ -224,7 +224,7 @@ def test_prompts(
         prompts=(prompt,),
     )
 
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
         "/mcp",
         json={
@@ -245,7 +245,7 @@ def test_prompts(
 
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "id": 1,
         "jsonrpc": "2.0",
         "result": {
@@ -273,7 +273,7 @@ def test_server_call_prompt_with_invalid_arguments(prompt: Prompt) -> None:
         version="1.0.0",
         prompts=(prompt,),
     )
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
         "/mcp",
         json={
@@ -308,7 +308,7 @@ def test_server_call_prompt_with_error(prompt: Prompt) -> None:
         version="1.0.0",
         prompts=(prompt,),
     )
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
         "/mcp",
         json={
@@ -328,7 +328,7 @@ def test_server_call_prompt_with_error(prompt: Prompt) -> None:
     )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -345,7 +345,7 @@ def test_prompt_not_found() -> None:
         version="1.0.0",
         prompts=(),
     )
-    client = TestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
+    client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(
         "/mcp",
         json={
@@ -401,7 +401,7 @@ def test_call_prompt_with_scope() -> None:
         ),
     )
     app = mount_mcp_server(server, BasicAuthBackend(("private",)))
-    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+    with MCPTestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -416,7 +416,7 @@ def test_call_prompt_with_scope() -> None:
         )
         assert response.status_code == HTTPStatus.OK
         response_json = response.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -464,7 +464,7 @@ def test_call_prompt_without_required_scope() -> None:
         ),
     )
     app = mount_mcp_server(server, BasicAuthBackend(("non_sufficient_scope",)))
-    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+    with MCPTestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -498,7 +498,7 @@ def test_prompt_without_args_reraises_server_error() -> None:
         version="1.0.0",
         prompts=(Prompt(func=prompt_raising_server_error, arguments_type=type(None)),),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
@@ -527,7 +527,7 @@ def test_prompt_with_args_reraises_server_error() -> None:
         version="1.0.0",
         prompts=(Prompt(func=prompt_raising_server_error, arguments_type=NoArguments),),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={

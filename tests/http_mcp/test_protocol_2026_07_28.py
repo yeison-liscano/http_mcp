@@ -298,18 +298,18 @@ def test_errors_do_not_carry_result_type() -> None:
     assert body["error"]["code"] == ErrorCode.INVALID_PARAMS.value
 
 
-def test_legacy_results_omit_modern_fields() -> None:
-    """Legacy revisions define none of resultType, _meta, ttlMs or cacheScope."""
+def test_every_list_result_carries_the_protocol_fields() -> None:
+    """There is no era that omits them: one revision, one result shape."""
     response = client().post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-        headers={"Content-Type": "application/json"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta()}},
+        headers=headers("tools/list"),
     )
 
     result = response.json()["result"]
     assert result["tools"]
     for field in ("resultType", "_meta", "ttlMs", "cacheScope"):
-        assert field not in result
+        assert field in result
 
 
 # ---------------------------------------------------------------------------
@@ -463,8 +463,29 @@ def test_name_header_rejects_a_malformed_sentinel() -> None:
     assert "not a valid header value" in error["message"]
 
 
-def test_legacy_requests_are_not_header_validated() -> None:
-    """A 2025-era client sends none of these headers and must still be served."""
+@pytest.mark.parametrize(
+    "declared_version",
+    [None, "2025-03-26", "2025-06-18", "2025-11-25", "1999-01-01"],
+)
+def test_declaring_another_revision_cannot_skip_header_validation(
+    declared_version: str | None,
+) -> None:
+    """Header validation must not be reachable around by declaring another revision.
+
+    Regression test. While two eras coexisted, this check ran only for requests that
+    declared the modern one. The mirrored headers exist so an intermediary can route
+    and authorize without parsing the body, so a request that could opt out of the
+    check could desynchronise that intermediary from the server acting on the body.
+    """
+    sent = {
+        "Content-Type": "application/json",
+        # Both headers contradict the body below.
+        "Mcp-Method": "tools/list",
+        "Mcp-Name": "harmless_tool",
+    }
+    if declared_version is not None:
+        sent["MCP-Protocol-Version"] = declared_version
+
     response = client().post(
         "/mcp",
         json={
@@ -473,11 +494,12 @@ def test_legacy_requests_are_not_header_validated() -> None:
             "method": "tools/call",
             "params": {"name": "get_time", "arguments": {}},
         },
-        headers={"Content-Type": "application/json"},
+        headers=sent,
     )
 
-    assert response.status_code == HTTPStatus.OK
-    assert response.json()["result"]["isError"] is False
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert "result" not in response.json()
 
 
 # ---------------------------------------------------------------------------

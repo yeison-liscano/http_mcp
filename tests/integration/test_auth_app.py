@@ -13,9 +13,11 @@ from starlette.testclient import TestClient
 from auth_mcp.resource_server.integration import ProtectedMCPAppConfig, create_protected_mcp_app
 from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 from auth_mcp.types.metadata import ProtectedResourceMetadata
+from http_mcp._mcp_types.meta import META_SERVER_INFO
 from http_mcp.server import MCPServer
 from tests.fixtures.main import lifespan
 from tests.fixtures.prompts import PROMPTS
+from tests.fixtures.protocol import MCPTestClient
 from tests.fixtures.tools import TOOLS
 
 _VALID_TOKEN = "test_oauth_token"  # noqa: S105
@@ -49,7 +51,7 @@ def _create_starlette_app(
     scopes: tuple[str, ...] = (),
     require_authentication: bool = True,
 ) -> Starlette:
-    """Return raw Starlette app (use with ``with TestClient(app) as client:``)."""
+    """Return raw Starlette app (use with ``with MCPTestClient(app) as client:``)."""
     server = MCPServer(name="test", version="1.0.0", tools=TOOLS, prompts=PROMPTS)
     config = ProtectedMCPAppConfig(
         mcp_server=server,
@@ -69,7 +71,7 @@ def _create_app(
     scopes: tuple[str, ...] = (),
     require_authentication: bool = True,
 ) -> TestClient:
-    return TestClient(
+    return MCPTestClient(
         _create_starlette_app(scopes=scopes, require_authentication=require_authentication),
     )
 
@@ -257,7 +259,7 @@ def test_all_scopes_sees_all_prompts() -> None:
 
 def test_call_public_tool_with_valid_token() -> None:
     app = _create_starlette_app(scopes=("private",))
-    with TestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
+    with MCPTestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -275,7 +277,7 @@ def test_call_public_tool_with_valid_token() -> None:
 
 def test_call_private_tool_with_matching_scope() -> None:
     app = _create_starlette_app(scopes=("private",))
-    with TestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
+    with MCPTestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -293,7 +295,7 @@ def test_call_private_tool_with_matching_scope() -> None:
 
 def test_call_private_tool_without_scope_returns_error() -> None:
     app = _create_starlette_app(scopes=())
-    with TestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
+    with MCPTestClient(app, headers={"Authorization": f"Bearer {_VALID_TOKEN}"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -359,34 +361,17 @@ def test_get_prompt_unauthenticated_returns_401() -> None:
 # --- Initialize ---
 
 
-def test_initialize_with_valid_token() -> None:
+def test_discover_with_valid_token() -> None:
     client = _create_app(scopes=())
-    result = _post_mcp(
-        client,
-        "initialize",
-        {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "clientInfo": {"name": "test", "version": "1.0.0"},
-        },
-    )
+    result = _post_mcp(client, "server/discover")
     assert result["status"] == HTTPStatus.OK
-    assert result["json"]["result"]["serverInfo"]["name"] == "test"
-    assert result["json"]["result"]["serverInfo"]["version"] == "1.0.0"
+    server_info = result["json"]["result"]["_meta"][META_SERVER_INFO]
+    assert server_info == {"name": "test", "version": "1.0.0"}
 
 
-def test_initialize_unauthenticated_returns_401() -> None:
+def test_discover_unauthenticated_returns_401() -> None:
     client = _create_app()
-    result = _post_mcp(
-        client,
-        "initialize",
-        {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "clientInfo": {"name": "test", "version": "1.0.0"},
-        },
-        authenticated=False,
-    )
+    result = _post_mcp(client, "server/discover", authenticated=False)
     assert result["status"] == HTTPStatus.UNAUTHORIZED
 
 

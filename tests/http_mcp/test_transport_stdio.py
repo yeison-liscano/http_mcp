@@ -4,10 +4,12 @@ import json
 import pytest
 
 from http_mcp._json_rcp_types.errors import ErrorCode
+from http_mcp._mcp_types.versions import SUPPORTED_PROTOCOL_VERSIONS
+from tests.fixtures.protocol import request_meta, without_envelope
 
 
 @pytest.mark.asyncio
-async def test_studio_transport() -> None:
+async def test_studio_transport_discover() -> None:
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
@@ -21,35 +23,22 @@ async def test_studio_transport() -> None:
             {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {
-                        "roots": {"listChanged": True},
-                        "sampling": {},
-                        "elicitation": {},
-                    },
-                    "clientInfo": {
-                        "name": "ExampleClient",
-                        "title": "Example Client Display Name",
-                        "version": "1.0.0",
-                    },
-                },
+                "method": "server/discover",
+                "params": {"_meta": request_meta()},
             },
         ).encode("utf-8"),
     )
 
     assert not stderr_data
-    assert json.loads(stdout_data) == {
+    assert without_envelope(json.loads(stdout_data)) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
-            "serverInfo": {"name": "test", "version": "1.0.0"},
+            "supportedVersions": list(SUPPORTED_PROTOCOL_VERSIONS),
             "capabilities": {
                 "prompts": {"listChanged": False},
                 "tools": {"listChanged": False},
             },
-            "protocolVersion": "2025-06-18",
         },
     }
 
@@ -130,7 +119,8 @@ async def test_studio_transport_notification() -> None:
 
 
 @pytest.mark.asyncio
-async def test_studio_transport_ping() -> None:
+async def test_studio_transport_rejects_retired_method() -> None:
+    """`ping` was removed with the session concept; it is now an unknown method."""
     process = await asyncio.create_subprocess_exec(
         "python",
         "-c",
@@ -139,11 +129,10 @@ async def test_studio_transport_ping() -> None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_data, stderr_data = await process.communicate(
+    stdout_data, _ = await process.communicate(
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8"),
     )
-    assert not stderr_data
-    assert json.loads(stdout_data) == {"jsonrpc": "2.0", "id": 1, "result": {}}
+    assert json.loads(stdout_data)["error"]["code"] == ErrorCode.INVALID_PARAMS.value
 
 
 @pytest.mark.asyncio

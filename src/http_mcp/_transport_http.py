@@ -82,8 +82,7 @@ def _validate_name_header(headers: Headers, method: str, params: dict[str, Any])
     body_name = params.get("name")
     if decoded != body_name:
         return (
-            f"Mcp-Name header value {_echo(decoded)} does not match "
-            f"body value {_echo(body_name)}"
+            f"Mcp-Name header value {_echo(decoded)} does not match body value {_echo(body_name)}"
         )
     return None
 
@@ -105,8 +104,7 @@ def _validate_param_header(
         return f"{label} header value is not a valid header value"
     if not values_match(decoded, body_value):
         return (
-            f"{label} header value {_echo(decoded)} does not match "
-            f"body value {_echo(body_value)}"
+            f"{label} header value {_echo(decoded)} does not match body value {_echo(body_value)}"
         )
     return None
 
@@ -236,25 +234,21 @@ class HTTPTransport(BaseTransport):
             )
             return None
 
-        is_modern = self.is_modern_request(
-            method if isinstance(method, str) else "",
-            raw_message.get("params"),
-            request.headers.get(PROTOCOL_VERSION_HEADER),
-        )
-        if is_modern:
-            mismatch = self._validate_request_headers(raw_message, request)
-            if mismatch is not None:
-                LOGGER.error("Header validation failed: %s", mismatch)
-                await self._send_error_response(
-                    send,
-                    ErrorResponseInfo(
-                        message_id=raw_message.get("id"),
-                        protocol_code=ErrorCode.HEADER_MISMATCH,
-                        http_status_code=HTTPStatus.BAD_REQUEST,
-                        message=f"Header mismatch: {mismatch}",
-                    ),
-                )
-                return None
+        # Every request carries the metadata envelope, so every request is checked.
+        # There is no second dispatch path a caller could pick to skip this.
+        mismatch = self._validate_request_headers(raw_message, request)
+        if mismatch is not None:
+            LOGGER.error("Header validation failed: %s", mismatch)
+            await self._send_error_response(
+                send,
+                ErrorResponseInfo(
+                    message_id=raw_message.get("id"),
+                    protocol_code=ErrorCode.HEADER_MISMATCH,
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    message=f"Header mismatch: {mismatch}",
+                ),
+            )
+            return None
 
         try:
             request_message = JSONRPCRequest.model_validate(raw_message)
@@ -271,9 +265,7 @@ class HTTPTransport(BaseTransport):
                         else ErrorCode.INVALID_PARAMS
                     ),
                     http_status_code=(
-                        HTTPStatus.NOT_FOUND
-                        if is_invalid_method and is_modern
-                        else HTTPStatus.BAD_REQUEST
+                        HTTPStatus.NOT_FOUND if is_invalid_method else HTTPStatus.BAD_REQUEST
                     ),
                     message="Error validating message request",
                 ),
@@ -292,6 +284,9 @@ class HTTPTransport(BaseTransport):
         A load balancer may route on the header while the server acts on the body, so
         the two disagreeing is a security problem, not a cosmetic one. Returns a
         description of the first disagreement, or None when they all agree.
+
+        This runs on every request. The check must not be reachable around: a caller
+        that could opt out of it could desynchronise an intermediary from the server.
         """
         headers = request.headers
         method = raw_message.get("method")

@@ -3,7 +3,6 @@ from http import HTTPStatus
 
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.testclient import TestClient
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from auth_mcp.authorization_server.client_store import ClientStore
@@ -17,6 +16,7 @@ from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistr
 from http_mcp.server import MCPServer
 from http_mcp.types import Tool
 from http_mcp.types.models import NoArguments
+from tests.fixtures.protocol import MCPTestClient
 
 _VALID_TOKEN = "valid_token"  # noqa: S105
 _PUBLIC_ONLY_TOKEN = "public_only_token"  # noqa: S105
@@ -91,7 +91,7 @@ _TOOLS = (
 )
 
 
-def _create_app(*, require_authentication: bool = True) -> TestClient:
+def _create_app(*, require_authentication: bool = True) -> MCPTestClient:
     server = MCPServer(
         name="test-auth",
         version="1.0.0",
@@ -108,7 +108,7 @@ def _create_app(*, require_authentication: bool = True) -> TestClient:
         require_authentication=require_authentication,
     )
     app = create_protected_mcp_app(config)
-    return TestClient(app)
+    return MCPTestClient(app)
 
 
 def test_protected_resource_metadata_endpoint() -> None:
@@ -230,7 +230,7 @@ def test_cors_config_adds_cors_headers() -> None:
         ],
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.options(
         "/mcp",
         headers={
@@ -256,7 +256,7 @@ def test_authorization_server_metadata_endpoint() -> None:
         authorization_server_metadata=_AS_METADATA,
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.get("/.well-known/oauth-authorization-server")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
@@ -278,7 +278,7 @@ def test_client_store_serves_register_endpoint() -> None:
         client_store=MockClientStore(),
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/register",
         json={"redirect_uris": ["https://example.com/callback"]},
@@ -347,7 +347,7 @@ def test_www_authenticate_resource_metadata_uses_origin_only() -> None:
         require_authentication=True,
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
@@ -370,7 +370,7 @@ def test_www_authenticate_resource_metadata_port_included_when_present() -> None
         require_authentication=True,
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
@@ -395,7 +395,7 @@ def test_full_discovery_flow() -> None:
         client_store=MockClientStore(),
     )
     app = create_protected_mcp_app(config)
-    client = TestClient(app)
+    client = MCPTestClient(app)
 
     as_response = client.get("/.well-known/oauth-authorization-server")
     assert as_response.status_code == HTTPStatus.OK
@@ -437,7 +437,7 @@ def test_custom_middlewares_run_once_per_request() -> None:
         require_authentication=False,
         middlewares=(Middleware(_CountingMiddleware),),
     )
-    client = TestClient(create_protected_mcp_app(config))
+    client = MCPTestClient(create_protected_mcp_app(config))
     response = client.post(
         "/mcp/",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},

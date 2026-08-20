@@ -1,10 +1,9 @@
 from http import HTTPStatus
 
-from starlette.testclient import TestClient
-
 from http_mcp.server import MCPServer
 from tests.fixtures.main import BasicAuthBackend, mcp_server, mount_mcp_server
 from tests.fixtures.prompts import PROMPTS
+from tests.fixtures.protocol import MCPTestClient, without_envelope
 from tests.fixtures.tools import TOOLS
 
 HEADER_AUTHORIZATION = {"Authorization": "Bearer TEST_TOKEN"}
@@ -17,7 +16,7 @@ def server_with_public_tools() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server_with_public_tools)
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={
@@ -32,14 +31,14 @@ def server_with_public_tools() -> None:
 
 def test_http_list_only_public_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend())
-    client = TestClient(app)
+    client = MCPTestClient(app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -54,13 +53,13 @@ def test_http_list_only_public_tools() -> None:
 
 def test_public_and_private_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private",)))
-    client = TestClient(app, headers=HEADER_AUTHORIZATION)
+    client = MCPTestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -75,13 +74,13 @@ def test_public_and_private_tools() -> None:
 
 def test_private_and_superuser_tools() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private", "superuser")))
-    client = TestClient(app, headers=HEADER_AUTHORIZATION)
+    client = MCPTestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -95,10 +94,10 @@ def test_private_and_superuser_tools() -> None:
 
 def test_public_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend())
-    client = TestClient(app, headers=HEADER_AUTHORIZATION)
+    client = MCPTestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -113,10 +112,10 @@ def test_public_prompts() -> None:
 
 def test_private_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private",)))
-    client = TestClient(app, headers=HEADER_AUTHORIZATION)
+    client = MCPTestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -131,10 +130,10 @@ def test_private_prompts() -> None:
 
 def test_private_and_superuser_prompts() -> None:
     app = mount_mcp_server(mcp_server, BasicAuthBackend(("private", "superuser")))
-    client = TestClient(app, headers=HEADER_AUTHORIZATION)
+    client = MCPTestClient(app, headers=HEADER_AUTHORIZATION)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "method": "prompts/list", "id": 1})
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {

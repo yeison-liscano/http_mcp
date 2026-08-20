@@ -1,13 +1,15 @@
 from http import HTTPStatus
 
 import pytest
-from starlette.testclient import TestClient
 
+from http_mcp._mcp_types.meta import META_SERVER_INFO
+from http_mcp._mcp_types.versions import LATEST_PROTOCOL_VERSION
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Tool
 from tests.fixtures.context import Context
 from tests.fixtures.main import BasicAuthBackend, mount_mcp_server
 from tests.fixtures.models import TestToolArguments, TestToolOutput
+from tests.fixtures.protocol import MCPTestClient, without_envelope
 
 # ---------------------------------------------------------------------------
 # Helper tools used across the merged test modules
@@ -94,47 +96,23 @@ def test_server_capabilities_with_tools() -> None:
     assert capabilities.prompts is None
 
 
-def test_protocol_initialization() -> None:
+def test_protocol_discover() -> None:
     server = MCPServer(
         tools=TOOLS_INITIALIZATION,
         name="protocol_test_initialization",
         version="1.0.2",
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
 
-    response = client.post(
-        "/mcp",
-        json={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {"roots": {"listChanged": True}, "sampling": {}, "elicitation": {}},
-                "clientInfo": {
-                    "name": "ExampleClient",
-                    "title": "Example Client Display Name",
-                    "version": "1.0.0",
-                },
-            },
-        },
-    )
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "server/discover"})
 
     assert response.status_code == HTTPStatus.OK
-    response_json = response.json()
-    assert response_json == {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {
-                "tools": {"listChanged": False},
-            },
-            "serverInfo": {
-                "name": "protocol_test_initialization",
-                "version": "1.0.2",
-            },
-        },
+    result = response.json()["result"]
+    assert result["supportedVersions"] == [LATEST_PROTOCOL_VERSION]
+    assert result["capabilities"] == {"tools": {"listChanged": False}}
+    assert result["_meta"][META_SERVER_INFO] == {
+        "name": "protocol_test_initialization",
+        "version": "1.0.2",
     }
 
 
@@ -150,7 +128,7 @@ def test_server_call_tool() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server)
-    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+    with MCPTestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -165,7 +143,7 @@ def test_server_call_tool() -> None:
         )
         assert response.status_code == HTTPStatus.OK
         response_json = response.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -190,7 +168,7 @@ def test_server_call_tool_with_scope() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server, BasicAuthBackend(("private",)))
-    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+    with MCPTestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -205,7 +183,7 @@ def test_server_call_tool_with_scope() -> None:
         )
         assert response.status_code == HTTPStatus.OK
         response_json = response.json()
-        assert response_json == {
+        assert without_envelope(response_json) == {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
@@ -230,7 +208,7 @@ def test_server_call_tool_without_required_scope() -> None:
         version="1.0.0",
     )
     app = mount_mcp_server(server, BasicAuthBackend(("no_sufficient_scope",)))
-    with TestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
+    with MCPTestClient(app, headers={"Authorization": "Bearer TEST_TOKEN"}) as client:
         response = client.post(
             "/mcp",
             json={
@@ -256,14 +234,14 @@ def test_server_call_tool_without_required_scope() -> None:
 
 def test_server_list_tools() -> None:
     server = MCPServer(tools=TOOLS_SIMPLE_SERVER, name="test", version="1.0.0")
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
     )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -299,7 +277,7 @@ def test_server_list_tools() -> None:
 
 def test_server_call_tool_without_context() -> None:
     server = MCPServer(tools=TOOLS_SIMPLE_SERVER, name="test", version="1.0.0")
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
@@ -314,7 +292,7 @@ def test_server_call_tool_without_context() -> None:
     )
     assert response.status_code == HTTPStatus.OK
     response_json = response.json()
-    assert response_json == {
+    assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
         "result": {
@@ -345,7 +323,7 @@ def test_scoped_tools_are_hidden_without_authentication_middleware() -> None:
         version="1.0.0",
         tools=(*TOOLS_SIMPLE_SERVER, *TOOLS_SIMPLE_SERVER_WITH_SCOPES),
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
@@ -361,7 +339,7 @@ def test_scoped_tool_call_is_denied_without_authentication_middleware() -> None:
         version="1.0.0",
         tools=TOOLS_SIMPLE_SERVER_WITH_SCOPES,
     )
-    client = TestClient(server.app)
+    client = MCPTestClient(server.app)
     response = client.post(
         "/mcp",
         json={
