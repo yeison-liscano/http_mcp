@@ -1,6 +1,7 @@
+from typing import Annotated
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 # Schemes that must never be accepted as redirect URIs. ``javascript`` and
 # ``data`` are XSS vectors; the others are non-web or non-navigable schemes
@@ -37,12 +38,15 @@ class ClientRegistrationRequest(BaseModel):
     for ``localhost`` / ``127.0.0.1`` / ``::1``, and any custom scheme listed
     in the ``allowed_custom_redirect_schemes`` validation context entry
     (RFC 8252 — OAuth 2.0 for Native Apps). Schemes in
-    :data:`DISALLOWED_REDIRECT_SCHEMES` are always rejected.
+    :data:`DISALLOWED_REDIRECT_SCHEMES` are always rejected, as is any URI carrying
+    a fragment (RFC 6749 3.1.2). At least one redirect URI is required.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    redirect_uris: tuple[str, ...]
+    # RFC 7591: a client using the authorization_code grant must register at least
+    # one redirect URI, or the authorization server has nothing to match against.
+    redirect_uris: Annotated[tuple[str, ...], Field(min_length=1)]
     client_name: str | None = None
     grant_types: tuple[str, ...] = ("authorization_code",)
     response_types: tuple[str, ...] = ("code",)
@@ -65,43 +69,68 @@ class ClientRegistrationRequest(BaseModel):
         return v
 
 
-def _validate_single_redirect_uri(uri: str, allowed_custom: frozenset[str]) -> None:
-    parsed = urlparse(uri)
-    scheme = parsed.scheme.lower()
-    if not scheme:
+_LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _require_netloc(netloc: str, uri: str) -> None:
+    if not netloc:
         msg = f"Redirect URI must be an absolute URI: {uri}"
         raise ValueError(msg)
-    # SECURITY: the denylist check MUST stay above the allowlist check below.
-    # Callers can pass ``allowed_custom_redirect_schemes`` via Pydantic context,
-    # and the endpoint's ``__init__`` guards against known-dangerous entries,
-    # but this validator is the authoritative gate — do not reorder.
-    if scheme in DISALLOWED_REDIRECT_SCHEMES:
-        msg = f"Redirect URI scheme is not allowed: {uri}"
-        raise ValueError(msg)
-    if scheme == "https":
-        if not parsed.netloc:
-            msg = f"Redirect URI must be an absolute URI: {uri}"
-            raise ValueError(msg)
-        return
-    if scheme == "http":
-        if not parsed.netloc:
-            msg = f"Redirect URI must be an absolute URI: {uri}"
-            raise ValueError(msg)
-        if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
-            msg = f"HTTP redirect URIs are only allowed for localhost: {uri}"
-            raise ValueError(msg)
-        return
-    # Custom URI scheme (RFC 8252). Only accepted when the library caller has
-    # explicitly opted this scheme in.
+
+
+def _validate_custom_scheme(
+    scheme: str,
+    netloc: str,
+    path: str,
+    uri: str,
+    allowed_custom: frozenset[str],
+) -> None:
+    """Validate a non-HTTP(S) scheme (RFC 8252 — OAuth 2.0 for Native Apps).
+
+    Only accepted when the library caller has explicitly opted this scheme in.
+    """
     if scheme not in allowed_custom:
         msg = (
             "Redirect URI must use HTTPS (or HTTP for localhost), "
             f"or a scheme explicitly allowed by the server: {uri}"
         )
         raise ValueError(msg)
-    if not parsed.netloc and not parsed.path:
+    if not netloc and not path:
         msg = f"Redirect URI must be an absolute URI: {uri}"
         raise ValueError(msg)
+
+
+def _validate_single_redirect_uri(uri: str, allowed_custom: frozenset[str]) -> None:
+    parsed = urlparse(uri)
+    scheme = parsed.scheme.lower()
+    if not scheme:
+        msg = f"Redirect URI must be an absolute URI: {uri}"
+        raise ValueError(msg)
+    # SECURITY: the denylist check MUST stay above the allowlist check below, and
+    # above the fragment check — a dangerous scheme must be reported as a dangerous
+    # scheme, not as whatever else happens to be wrong with the URI. Callers can pass
+    # ``allowed_custom_redirect_schemes`` via Pydantic context, and the endpoint's
+    # ``__init__`` guards against known-dangerous entries, but this validator is the
+    # authoritative gate — do not reorder.
+    if scheme in DISALLOWED_REDIRECT_SCHEMES:
+        msg = f"Redirect URI scheme is not allowed: {uri}"
+        raise ValueError(msg)
+    # RFC 6749 3.1.2: the redirection endpoint URI must not include a fragment.
+    if parsed.fragment:
+        msg = f"Redirect URI must not contain a fragment: {uri}"
+        raise ValueError(msg)
+    if scheme == "https":
+        _require_netloc(parsed.netloc, uri)
+        return
+    if scheme == "http":
+        _require_netloc(parsed.netloc, uri)
+        # `parsed.hostname` strips any userinfo, so `http://localhost@evil.com` is
+        # correctly read as the host `evil.com` and rejected.
+        if parsed.hostname not in _LOOPBACK_HOSTS:
+            msg = f"HTTP redirect URIs are only allowed for localhost: {uri}"
+            raise ValueError(msg)
+        return
+    _validate_custom_scheme(scheme, parsed.netloc, parsed.path, uri, allowed_custom)
 
 
 class ClientRegistrationResponse(BaseModel):

@@ -34,11 +34,12 @@ ruff check
 # Format
 ruff format
 
-# Format markdown files
-mdformat . --wrap 80
+# Format markdown files (never `mdformat .` — it rewrites the YAML
+# frontmatter in .claude/ into a heading and breaks the agent definitions)
+mdformat README.md docs/ --wrap 80 --exclude .claude/
 
 # Full pre-push check (what CI runs)
-ruff check && mypy . && pytest --cov-report term-missing --cov=src --cov-fail-under=90 tests/ && mdformat . --wrap 80
+ruff check && mypy . && pytest --cov-report term-missing --cov=src --cov-fail-under=90 tests/ && mdformat README.md docs/ --wrap 80 --exclude .claude/
 ```
 
 ## Architecture

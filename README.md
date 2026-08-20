@@ -98,6 +98,9 @@ managing shared server state.
 - `allowed_origins` (tuple[str, ...]): Origins the HTTP transport accepts
   (default: empty, meaning the check is disabled). See
   [Origin Validation](#origin-validation).
+- `require_origin` (bool): Whether a request carrying no `Origin` header at all
+  is refused when `allowed_origins` is set (default: `False`). See
+  [Origin Validation](#origin-validation).
 
 **Example Usage:**
 
@@ -261,8 +264,26 @@ mcp_server = MCPServer(
 ```
 
 A request whose `Origin` is present and not on the list gets `403 Forbidden`.
-Requests with no `Origin` at all — ordinary non-browser clients — are
-unaffected. When running locally, also bind to `127.0.0.1` rather than
+Requests with no `Origin` at all — ordinary non-browser clients — are unaffected
+by default, because browsers always send `Origin` on a POST and the rebinding
+threat model does not cover clients that are not browsers.
+
+If the endpoint should only ever serve browser traffic, add `require_origin` to
+refuse a request that omits the header too, which makes the allowlist mandatory
+rather than advisory:
+
+```python
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=my_tools,
+    allowed_origins=("https://app.example.com",),
+    require_origin=True,
+)
+```
+
+`require_origin` does nothing on its own — it only tightens an allowlist that is
+already configured. When running locally, also bind to `127.0.0.1` rather than
 `0.0.0.0`.
 
 ### Mirroring Tool Parameters into Headers
@@ -288,9 +309,18 @@ and the server verifies it against the body — rejecting the request with
 argument is absent. `Mcp-Param-*` headers that no annotation claims are ignored,
 as intermediaries are expected to forward unrecognised ones untouched.
 
+The comparison is textual, against the value as JSON writes it: for
+`"replicas": 3` the header must read exactly `3`, not `3.0`, `+3`, or `3`.
+Numeric coercion would call those equal while an intermediary routing on the raw
+header string saw something else, which is the desync the mirroring exists to
+prevent.
+
 Only `string`, `integer`, and `boolean` fields reachable through a plain chain
-of object properties can be annotated. Do not annotate sensitive values: header
-contents are visible to every intermediary on the path.
+of object properties can be annotated, and no two fields may claim the same
+header name — a collision is refused when the server is constructed, because
+keeping one of the two annotations would leave the other silently unenforced. Do
+not annotate sensitive values: header contents are visible to every intermediary
+on the path.
 
 ## Tools
 
@@ -1178,10 +1208,14 @@ For full documentation, best practices, and security surface details, see
   `AuthenticationMiddleware`.
 - **Authorization** — Scope-based filtering via Starlette's
   `has_required_scope()`. Tools and prompts without matching scopes are hidden
-  from listings and blocked on invocation.
+  from listings and blocked on invocation. Request-header validation resolves
+  tool schemas through the same scope check, so a caller a tool is hidden from
+  cannot learn its `x-mcp-header` arguments from a mismatch message either.
 - **Input validation** — JSON-RPC messages validated by Pydantic. Request body
-  capped at 4 MB. Content-Type strictly checked (`application/json` only, media
-  type parameters ignored).
+  capped at 4 MB, enforced while reading: an oversized `Content-Length` is
+  refused before the body is read at all, and a body that outgrows the cap
+  mid-stream stops being buffered at that point. Content-Type strictly checked
+  (`application/json` only, media type parameters ignored).
 - **Error handling** — Tool and prompt names truncated to 100 characters in
   error messages. Pydantic validation errors sanitized before inclusion in
   responses.

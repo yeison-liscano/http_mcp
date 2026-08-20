@@ -343,11 +343,31 @@ def test_scheme_only_uri_rejected_for_custom_scheme() -> None:
         _model_validate(("cursor:",), allowed=frozenset({"cursor"}))
 
 
-def test_query_and_fragment_preserved_on_success() -> None:
-    """Query and fragment in valid HTTPS URIs survive validation."""
-    uri = "https://c.example.com/cb?x=1#y=2"
+def test_query_preserved_on_success() -> None:
+    """A query string in a valid HTTPS URI survives validation."""
+    uri = "https://c.example.com/cb?x=1"
     result = _model_validate((uri,))
     assert result.redirect_uris == (uri,)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://c.example.com/cb#y=2",
+        "https://c.example.com/cb?x=1#y=2",
+        "http://localhost/cb#y=2",
+    ],
+)
+def test_fragment_is_rejected(uri: str) -> None:
+    """RFC 6749 3.1.2 forbids a fragment on the redirection endpoint URI."""
+    with pytest.raises(ValidationError, match="must not contain a fragment"):
+        _model_validate((uri,))
+
+
+def test_at_least_one_redirect_uri_is_required() -> None:
+    """RFC 7591: an authorization_code client needs somewhere to be sent back to."""
+    with pytest.raises(ValidationError):
+        _model_validate(())
 
 
 def test_mixed_valid_and_invalid_uris_all_rejected() -> None:

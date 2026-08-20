@@ -1,6 +1,7 @@
 from http import HTTPStatus
 
 import pytest
+from pydantic import BaseModel, Field
 
 from http_mcp._mcp_types.meta import META_SERVER_INFO
 from http_mcp._mcp_types.versions import LATEST_PROTOCOL_VERSION
@@ -354,3 +355,82 @@ def test_scoped_tool_call_is_denied_without_authentication_middleware() -> None:
     )
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert response.json() == {"error": "insufficient_scope"}
+
+
+# ---------------------------------------------------------------------------
+# Scope-restricted tools are not described to callers who cannot see them
+# ---------------------------------------------------------------------------
+
+
+class _ScopedInputs(BaseModel):
+    tenant: str = Field(json_schema_extra={"x-mcp-header": "tenant"})
+
+
+class _ScopedOutput(BaseModel):
+    ok: bool
+
+
+def restricted_tool(_args: Arguments[_ScopedInputs]) -> _ScopedOutput:
+    """Return a result only an admin may see."""
+    return _ScopedOutput(ok=True)
+
+
+_RESTRICTED_SERVER = MCPServer(
+    "test",
+    "1.0.0",
+    tools=(
+        Tool(
+            func=restricted_tool,
+            inputs=_ScopedInputs,
+            output=_ScopedOutput,
+            scopes=("admin",),
+        ),
+    ),
+)
+
+
+def test_header_validation_does_not_describe_a_tool_the_caller_cannot_see() -> None:
+    """Header validation runs before dispatch, so it must respect scopes too.
+
+    A schema lookup that ignored scopes answered questions about hidden tools: the
+    mismatch message names the annotated arguments, disclosing part of a restricted
+    tool's input schema to a caller `tools/list` hides it from.
+    """
+    client = MCPTestClient(_RESTRICTED_SERVER.app)
+
+    listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert listed.json()["result"]["tools"] == []
+
+    # The annotated argument is present but its `Mcp-Param-tenant` header is not.
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "restricted_tool", "arguments": {"tenant": "acme"}},
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "tenant" not in response.text
+    assert "Mcp-Param" not in response.text
+
+
+def test_duplicate_header_annotations_fail_at_construction() -> None:
+    """A schema that cannot be checked correctly must not be served at all."""
+
+    class _Colliding(BaseModel):
+        tenant: str = Field(json_schema_extra={"x-mcp-header": "tenant"})
+        account: str = Field(json_schema_extra={"x-mcp-header": "Tenant"})
+
+    def colliding_tool(_args: Arguments[_Colliding]) -> _ScopedOutput:
+        """Two arguments claiming one header."""
+        return _ScopedOutput(ok=True)
+
+    with pytest.raises(ValueError, match=r"[Dd]uplicate x-mcp-header"):
+        MCPServer(
+            "test",
+            "1.0.0",
+            tools=(Tool(func=colliding_tool, inputs=_Colliding, output=_ScopedOutput),),
+        )
