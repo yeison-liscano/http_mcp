@@ -213,3 +213,55 @@ async def test_validator_exception_raises_auth_error_when_auth_required() -> Non
     conn = _make_connection({"Authorization": f"Bearer {_VALID_ACCESS_TOKEN}"})
     with pytest.raises(Exception, match="Invalid or expired token"):
         await backend.authenticate(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token",
+    [
+        f"{_VALID_ACCESS_TOKEN}\n",
+        f"{_VALID_ACCESS_TOKEN}=\n",
+        "abc123\n",
+    ],
+)
+async def test_rejects_token_with_trailing_newline(token: str) -> None:
+    r"""Reject a token whose only flaw is a trailing newline.
+
+    The pattern is anchored with `\Z`, not `$`.
+
+    Python's `$` also matches immediately before a trailing newline, so `$` here
+    passed a token ending in "\\n" through to the validator. An HTTP parser rejects a
+    bare LF in a header value long before this runs, but the token this blesses is
+    handed to arbitrary validator code, which may put it in an outbound request.
+    """
+    backend = OAuthAuthenticationBackend(
+        token_validator=MockTokenValidator(),
+        resource_uri="https://mcp.example.com",
+        require_authentication=False,
+    )
+    conn = _make_connection({"Authorization": f"Bearer {token}"})
+    _, user = await backend.authenticate(conn)
+    assert isinstance(user, UnauthenticatedUser)
+
+
+@pytest.mark.asyncio
+async def test_token_never_reaches_the_validator_when_malformed() -> None:
+    """A rejected format must not be forwarded to the validator at all."""
+    seen: list[str] = []
+
+    class RecordingValidator(TokenValidator):
+        async def validate_token(
+            self,
+            token: str,
+            resource: str | None = None,  # noqa: ARG002
+        ) -> TokenInfo | None:
+            seen.append(token)
+            return None
+
+    backend = OAuthAuthenticationBackend(
+        token_validator=RecordingValidator(),
+        resource_uri="https://mcp.example.com",
+        require_authentication=False,
+    )
+    await backend.authenticate(_make_connection({"Authorization": "Bearer abc123\n"}))
+    assert seen == []

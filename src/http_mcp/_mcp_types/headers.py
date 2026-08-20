@@ -8,6 +8,7 @@ different values for the same request.
 
 import base64
 import binascii
+import json
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -51,12 +52,32 @@ def is_valid_header_value(value: str) -> bool:
     return all(char == "\t" or "\x20" <= char <= "\x7e" for char in value)
 
 
+class DuplicateHeaderParamError(ValueError):
+    """Raised when two properties claim the same ``x-mcp-header`` name.
+
+    Header names are matched case-insensitively, so ``tenant`` and ``Tenant`` collide.
+    Silently keeping one of the two would leave the other property unvalidated while
+    the server still believed it was checking it, so this fails closed instead.
+    """
+
+    def __init__(self, header_name: str, first: tuple[str, ...], second: tuple[str, ...]) -> None:
+        self.header_name = header_name
+        super().__init__(
+            f"Duplicate x-mcp-header {header_name!r} declared by both "
+            f"{'.'.join(first)!r} and {'.'.join(second)!r}",
+        )
+
+
 def collect_header_params(schema: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
     """Map each ``x-mcp-header`` name to the property path it mirrors.
 
     Only properties statically reachable through a chain of ``properties`` keys are
     considered; the spec excludes annotations reached via ``items``, ``$ref``, or a
     composition or conditional keyword, so walking ``properties`` alone is the rule.
+
+    Raises :class:`DuplicateHeaderParamError` when two properties claim the same
+    header name. A tool whose schema collides this way cannot be validated correctly,
+    so it must not be served at all.
     """
     found: dict[str, tuple[str, ...]] = {}
 
@@ -69,7 +90,10 @@ def collect_header_params(schema: Mapping[str, Any]) -> dict[str, tuple[str, ...
                 continue
             header_name = subschema.get("x-mcp-header")
             if isinstance(header_name, str) and header_name:
-                found[header_name.lower()] = (*path, name)
+                key = header_name.lower()
+                if key in found:
+                    raise DuplicateHeaderParamError(key, found[key], (*path, name))
+                found[key] = (*path, name)
             walk(subschema, (*path, name))
 
     walk(schema, ())
@@ -87,13 +111,22 @@ def extract_argument(arguments: Mapping[str, Any], path: tuple[str, ...]) -> Any
 
 
 def values_match(header_value: str, body_value: object) -> bool:
-    """Compare a decoded header value against the value carried in the body."""
+    """Compare a decoded header value against the value carried in the body.
+
+    The comparison is textual, against the value as JSON writes it. Coercing both
+    sides with ``float()`` would accept spellings that only Python reads as equal —
+    ``"1_0"``, ``" 10 "``, ``"1e1"``, ``"+10"`` all parse to ``10`` — while an
+    intermediary routing or rate-limiting on the raw header sees a different value
+    than the server acts on. Byte agreement is the property that mirroring exists to
+    guarantee, so byte agreement is what gets checked.
+    """
     if isinstance(body_value, bool):
         return header_value == ("true" if body_value else "false")
     if isinstance(body_value, int | float):
         try:
-            return float(header_value) == float(body_value)
+            return header_value == json.dumps(body_value, allow_nan=False)
         except ValueError:
+            # Out-of-range floats (nan, inf) have no JSON rendering to agree on.
             return False
     if isinstance(body_value, str):
         return header_value == body_value

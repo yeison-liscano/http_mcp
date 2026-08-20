@@ -4,6 +4,7 @@ from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
 from http_mcp._mcp_types.capabilities import Capability, ServerCapabilities
+from http_mcp._mcp_types.headers import DuplicateHeaderParamError, collect_header_params
 from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
 from http_mcp._mcp_types.results import CacheScope
 from http_mcp._stdio_transport import StdioTransport
@@ -26,6 +27,22 @@ def _check_scope(request: Request, scopes: tuple[str, ...]) -> bool:
     if "auth" not in request.scope:
         return False
     return has_required_scope(request, scopes)
+
+
+def _ensure_header_params_are_unique(tools: tuple[Tool, ...]) -> None:
+    """Reject a tool whose schema declares one `x-mcp-header` name twice.
+
+    `collect_header_params` raises rather than letting the second annotation overwrite
+    the first, which would leave a property unchecked while the server still reported
+    it as validated. Running it here turns that into a construction-time error instead
+    of a per-request surprise.
+    """
+    for _tool in tools:
+        try:
+            collect_header_params(_tool.input_schema)
+        except DuplicateHeaderParamError as e:
+            msg = f"Tool {_tool.name!r} has an invalid input schema: {e}"
+            raise ValueError(msg) from e
 
 
 def _ensure_unique_names(feature_type: str, names: tuple[str, ...]) -> None:
@@ -54,6 +71,11 @@ class MCPServer(ServerInterface):
         allowed_origins: Origins the HTTP transport accepts. Empty (the default)
             disables the check. Set this when the server is reachable from a browser:
             it is the defence against DNS rebinding.
+        require_origin: Whether a request that sends no `Origin` header at all is
+            refused when `allowed_origins` is set. Off by default, because browsers
+            always send `Origin` on a POST and non-browser clients generally do not.
+            Turn it on for a server that should only ever serve browser traffic, which
+            makes the allowlist mandatory rather than advisory.
 
     """
 
@@ -68,9 +90,11 @@ class MCPServer(ServerInterface):
         cache_ttl_ms: int = DEFAULT_CACHE_TTL_MS,
         cache_scope: CacheScope | None = None,
         allowed_origins: tuple[str, ...] = (),
+        require_origin: bool = False,
     ) -> None:
         _ensure_unique_names("tool", tuple(_tool.name for _tool in tools))
         _ensure_unique_names("prompt", tuple(_prompt.name for _prompt in prompts))
+        _ensure_header_params_are_unique(tools)
         if cache_ttl_ms < 0:
             msg = "cache_ttl_ms must be greater than or equal to 0"
             raise ValueError(msg)
@@ -82,6 +106,7 @@ class MCPServer(ServerInterface):
         self._cache_ttl_ms = cache_ttl_ms
         self._cache_scope: CacheScope = cache_scope or self._derive_cache_scope()
         self._allowed_origins = allowed_origins
+        self._require_origin = require_origin
         self._http_transport = HTTPTransport(self)
         self._stdio_transport = StdioTransport(self)
 
@@ -122,6 +147,10 @@ class MCPServer(ServerInterface):
         return self._allowed_origins
 
     @property
+    def require_origin(self) -> bool:
+        return self._require_origin
+
+    @property
     def capabilities(self) -> ServerCapabilities:
         capability = Capability(list_changed=False)
         return ServerCapabilities(
@@ -129,9 +158,13 @@ class MCPServer(ServerInterface):
             tools=capability if self._tools else None,
         )
 
-    def get_tool_input_schema(self, tool_name: str) -> dict | None:
+    def get_tool_input_schema(self, tool_name: str, request: Request) -> dict | None:
         return next(
-            (_tool.input_schema for _tool in self._tools if _tool.name == tool_name),
+            (
+                _tool.input_schema
+                for _tool in self._tools
+                if _tool.name == tool_name and _check_scope(request, _tool.scopes)
+            ),
             None,
         )
 

@@ -21,7 +21,11 @@ _INVALID_TOKEN_MSG = "Invalid or expired token"  # noqa: S105
 _MALFORMED_TOKEN_MSG = "Malformed bearer token"  # noqa: S105
 
 _MAX_TOKEN_LENGTH = 2048
-_BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9\-._~+/]+=*$")
+# `\Z`, not `$`: Python's `$` also matches immediately before a trailing newline, so
+# `$` here would pass a token ending in "\n" through to the validator. An HTTP parser
+# rejects a bare LF in a header value long before this runs, but this backend is a
+# reusable component and the token it blesses is handed to arbitrary validator code.
+_BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9\-._~+/]+=*\Z")
 
 
 class OAuthAuthenticationBackend(AuthenticationBackend):

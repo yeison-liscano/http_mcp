@@ -16,6 +16,7 @@ from http_mcp._json_rcp_types.messages import (
 from http_mcp._mcp_types.headers import (
     HEADER_PARAM_PREFIX,
     MISSING,
+    DuplicateHeaderParamError,
     collect_header_params,
     decode_header_value,
     extract_argument,
@@ -40,6 +41,11 @@ _NAME_HEADER = "mcp-name"
 # Methods whose subject is mirrored into `Mcp-Name`.
 _NAMED_METHODS = ("tools/call", "prompts/get")
 _MAX_ECHOED_VALUE = 100
+
+# Revision 2026-07-28 defines no notifications: `notifications/initialized` went away
+# with the `initialize` handshake. The set is empty on purpose rather than absent, so
+# that adding a notification is a deliberate edit here and everything else is refused.
+KNOWN_NOTIFICATIONS: frozenset[str] = frozenset()
 
 
 def _echo(value: object) -> str:
@@ -158,14 +164,44 @@ class HTTPTransport(BaseTransport):
         await self._handle_post_request(request, send)
 
     def _is_allowed_origin(self, origin: str | None) -> bool:
-        """Guard against DNS rebinding; disabled while no allowlist is configured."""
-        if not self._server.allowed_origins or origin is None:
+        """Guard against DNS rebinding; disabled while no allowlist is configured.
+
+        A missing ``Origin`` is allowed by default: browsers always send one on a POST,
+        so absence means a non-browser client, which the rebinding threat model does not
+        cover. Servers that only ever expect browser traffic can set ``require_origin``
+        to close that gap and make the allowlist mandatory rather than advisory.
+        """
+        if not self._server.allowed_origins:
             return True
+        if origin is None:
+            return not self._server.require_origin
         return origin in self._server.allowed_origins
 
+    async def _read_body(self, request: Request) -> bytes | None:
+        """Read the body, refusing to buffer more than ``MAXIMUM_MESSAGE_SIZE``.
+
+        The cap has to be applied while reading, not after. ``Request.body()`` drains
+        the whole stream into memory first, which commits the allocation before the
+        limit is consulted and lets an oversized request cost what it asks for rather
+        than what the server allows. Returns None when the limit is exceeded.
+        """
+        declared = request.headers.get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > MAXIMUM_MESSAGE_SIZE:
+            return None
+
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAXIMUM_MESSAGE_SIZE:
+                # Stop reading here; the remainder is never buffered.
+                return None
+            chunks.append(chunk)
+        return b"".join(chunks)
+
     async def _handle_post_request(self, request: Request, send: Send) -> None:
-        body = await request.body()
-        if len(body) > MAXIMUM_MESSAGE_SIZE:
+        body = await self._read_body(request)
+        if body is None:
             LOGGER.error("Request body too large")
             await self._send_error_response(
                 send,
@@ -216,6 +252,37 @@ class HTTPTransport(BaseTransport):
             and method.startswith("notifications/")
             and raw_message.get("id") is None
         )
+        if is_notification and method not in KNOWN_NOTIFICATIONS:
+            # Accepting any string under the prefix meant an unknown method could take
+            # a 202 without ever meeting the header check below.
+            LOGGER.error("Unknown notification method")
+            await self._send_error_response(
+                send,
+                ErrorResponseInfo(
+                    protocol_code=ErrorCode.METHOD_NOT_FOUND,
+                    http_status_code=HTTPStatus.NOT_FOUND,
+                    message=f"Method not supported: {_echo(method)}",
+                ),
+            )
+            return None
+
+        # Every request carries the metadata envelope, so every request is checked.
+        # There is no second dispatch path a caller could pick to skip this —
+        # notifications included, which is why this sits above the 202 below.
+        mismatch = self._validate_request_headers(raw_message, request)
+        if mismatch is not None:
+            LOGGER.error("Header validation failed: %s", mismatch)
+            await self._send_error_response(
+                send,
+                ErrorResponseInfo(
+                    message_id=raw_message.get("id"),
+                    protocol_code=ErrorCode.HEADER_MISMATCH,
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    message=f"Header mismatch: {mismatch}",
+                ),
+            )
+            return None
+
         if is_notification:
             await send(
                 {
@@ -231,22 +298,6 @@ class HTTPTransport(BaseTransport):
                     "body": b"",
                     "more_body": False,
                 },
-            )
-            return None
-
-        # Every request carries the metadata envelope, so every request is checked.
-        # There is no second dispatch path a caller could pick to skip this.
-        mismatch = self._validate_request_headers(raw_message, request)
-        if mismatch is not None:
-            LOGGER.error("Header validation failed: %s", mismatch)
-            await self._send_error_response(
-                send,
-                ErrorResponseInfo(
-                    message_id=raw_message.get("id"),
-                    protocol_code=ErrorCode.HEADER_MISMATCH,
-                    http_status_code=HTTPStatus.BAD_REQUEST,
-                    message=f"Header mismatch: {mismatch}",
-                ),
             )
             return None
 
@@ -306,23 +357,40 @@ class HTTPTransport(BaseTransport):
                 return mismatch
 
         if method == "tools/call":
-            return self._validate_param_headers(headers, params)
+            return self._validate_param_headers(headers, params, request)
         return None
 
-    def _validate_param_headers(self, headers: Headers, params: dict[str, Any]) -> str | None:
+    def _validate_param_headers(
+        self,
+        headers: Headers,
+        params: dict[str, Any],
+        request: Request,
+    ) -> str | None:
         """Validate the `Mcp-Param-*` headers a tool's `x-mcp-header` annotations require.
 
         Headers that no annotation claims are ignored, as intermediaries are expected to
         forward unrecognised ones untouched.
+
+        The schema lookup is scope-aware. This runs ahead of dispatch, so a lookup that
+        ignored scopes would answer questions about tools the caller cannot see: the
+        mismatch messages below name the annotated arguments, which would disclose part
+        of a restricted tool's input schema to a caller `tools/list` hides it from.
         """
         tool_name = params.get("name")
         if not isinstance(tool_name, str):
             return None
-        schema = self._server.get_tool_input_schema(tool_name)
+        schema = self._server.get_tool_input_schema(tool_name, request)
         if schema is None:
-            # Unknown tool; the dispatcher reports it as invalid params.
+            # Unknown tool, or one this caller may not see. Either way the dispatcher
+            # is the only thing that gets to respond about it.
             return None
-        annotated = collect_header_params(schema)
+        try:
+            annotated = collect_header_params(schema)
+        except DuplicateHeaderParamError:
+            # A colliding schema cannot be checked correctly, so refuse the call rather
+            # than serve it with one of the two annotations silently unenforced.
+            LOGGER.exception("Tool schema declares a duplicate x-mcp-header")
+            return "tool schema declares a duplicate x-mcp-header annotation"
         if not annotated:
             return None
 

@@ -47,9 +47,21 @@ class ServerInterface(ABC):
         """Origins accepted by the HTTP transport; empty disables the check."""
         raise NotImplementedError
 
+    @property
     @abstractmethod
-    def get_tool_input_schema(self, tool_name: str) -> dict | None:
-        """Return a tool's input schema, or None when no such tool exists."""
+    def require_origin(self) -> bool:
+        """Whether a request with no ``Origin`` header is refused by the allowlist."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_tool_input_schema(self, tool_name: str, request: Request) -> dict | None:
+        """Return a tool's input schema, or None when the caller may not see it.
+
+        Answers None both for a tool that does not exist and for one the caller lacks
+        the scopes for, so that a caller cannot tell the two apart from the schema
+        lookup alone. This runs before dispatch, hence before any authorization check
+        the dispatcher applies.
+        """
         raise NotImplementedError
 
     @abstractmethod

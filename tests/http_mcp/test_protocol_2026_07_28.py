@@ -582,13 +582,26 @@ def test_param_header_sent_without_the_argument_is_rejected() -> None:
     assert "has no value in the body" in response.json()["error"]["message"]
 
 
-def test_integer_param_headers_compare_numerically() -> None:
+def test_integer_param_headers_compare_textually() -> None:
+    """A number matches the header only as JSON writes it.
+
+    Comparing with `float()` accepted any spelling Python could parse — "3.0",
+    "+3", " 3 ", "3_0" for 30 — which let an intermediary route on one value while
+    the server acted on another. That desync is what the mirroring exists to stop.
+    """
     response = call_execute_sql(
         {"region": "us-west1", "replicas": 3, "query": "SELECT 1"},
-        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "3.0"},
+        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "3"},
     )
-
     assert response.status_code == HTTPStatus.OK
+
+    for spelling in ("3.0", "+3", " 3 ", "03"):
+        response = call_execute_sql(
+            {"region": "us-west1", "replicas": 3, "query": "SELECT 1"},
+            **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": spelling},
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
 
 
 def test_param_headers_accept_the_base64_sentinel() -> None:

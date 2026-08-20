@@ -6,6 +6,7 @@ import pytest
 
 from http_mcp._mcp_types.headers import (
     MISSING,
+    DuplicateHeaderParamError,
     collect_header_params,
     decode_header_value,
     extract_argument,
@@ -166,9 +167,19 @@ def test_the_missing_sentinel_is_readable() -> None:
         ("True", True, False),
         ("1", True, False),
         ("42", 42, True),
-        ("42.0", 42, True),
+        ("42.0", 42.0, True),
         ("42", 41, False),
         ("not-a-number", 42, False),
+        # A header only matches the value as JSON writes it. `float()` coercion used
+        # to call all of these equal to 42, while an intermediary keying on the raw
+        # header string saw something else entirely.
+        ("42.0", 42, False),
+        ("4_2", 42, False),
+        (" 42 ", 42, False),
+        ("4e1", 40, False),
+        ("+42", 42, False),
+        ("042", 42, False),
+        ("42", float("nan"), False),
         ("us-west1", "us-west1", True),
         ("us-west1", "eu-west1", False),
         ("anything", ["a", "list"], False),
@@ -181,3 +192,46 @@ def test_values_are_compared_by_type(
     expected: bool,
 ) -> None:
     assert values_match(header_value, body_value) is expected
+
+
+# ---------------------------------------------------------------------------
+# Duplicate x-mcp-header annotations
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_header_names_are_rejected() -> None:
+    """Overwriting the first annotation would leave its property silently unchecked."""
+    schema = {
+        "properties": {
+            "tenant": {"type": "string", "x-mcp-header": "tenant"},
+            "tenant_b": {"type": "string", "x-mcp-header": "tenant"},
+        },
+    }
+    with pytest.raises(DuplicateHeaderParamError, match="tenant"):
+        collect_header_params(schema)
+
+
+def test_duplicate_header_names_are_matched_case_insensitively() -> None:
+    """Header names are case-insensitive, so `tenant` and `Tenant` are one name."""
+    schema = {
+        "properties": {
+            "tenant": {"type": "string", "x-mcp-header": "tenant"},
+            "tenant_b": {"type": "string", "x-mcp-header": "Tenant"},
+        },
+    }
+    with pytest.raises(DuplicateHeaderParamError):
+        collect_header_params(schema)
+
+
+def test_duplicate_header_names_are_rejected_across_nesting_levels() -> None:
+    schema = {
+        "properties": {
+            "region": {"type": "string", "x-mcp-header": "region"},
+            "target": {
+                "type": "object",
+                "properties": {"region": {"type": "string", "x-mcp-header": "region"}},
+            },
+        },
+    }
+    with pytest.raises(DuplicateHeaderParamError):
+        collect_header_params(schema)
