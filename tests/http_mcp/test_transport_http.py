@@ -1,13 +1,12 @@
 from http import HTTPStatus
 
-from starlette.testclient import TestClient
-
 from http_mcp._json_rcp_types.errors import ErrorCode
 from tests.fixtures.models import DUMMY_SERVER
+from tests.fixtures.protocol import MCPTestClient
 
 
 def test_unsupported_content_type() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -25,7 +24,7 @@ def test_unsupported_content_type() -> None:
 
 
 def test_unsupported_request_method() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.get("/mcp")
     assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
@@ -33,7 +32,7 @@ def test_unsupported_request_method() -> None:
 
 
 def test_request_body_too_large() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -56,7 +55,7 @@ def test_request_body_too_large() -> None:
 
 
 def test_parse_error() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -75,7 +74,7 @@ def test_parse_error() -> None:
 
 
 def test_notification() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -89,27 +88,18 @@ def test_notification() -> None:
     assert response.text == ""
 
 
-def test_ping() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+def test_retired_method_is_not_found() -> None:
+    """`ping` and `initialize` went away with the session concept."""
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": "1", "method": "ping"},
     )
-    assert response.status_code == HTTPStatus.OK
-    assert response.json() == {"jsonrpc": "2.0", "id": "1", "result": {}}
-
-
-def test_invalid_message() -> None:
-    client = TestClient(DUMMY_SERVER.app)
-
-    response = client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0"},
-    )
-    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.status_code == HTTPStatus.NOT_FOUND
     assert response.json() == {
         "jsonrpc": "2.0",
+        "id": "1",
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
             "message": "Error validating message request",
@@ -117,8 +107,17 @@ def test_invalid_message() -> None:
     }
 
 
+def test_body_without_a_method_fails_the_envelope_check() -> None:
+    """`Mcp-Method` mirrors the body method, so a body with none cannot agree with it."""
+    client = MCPTestClient(DUMMY_SERVER.app)
+
+    response = client.post("/mcp", json={"jsonrpc": "2.0"})
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
 def test_json_array_body_returns_invalid_request() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -136,7 +135,7 @@ def test_json_array_body_returns_invalid_request() -> None:
 
 
 def test_json_scalar_body_returns_invalid_request() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
@@ -148,19 +147,18 @@ def test_json_scalar_body_returns_invalid_request() -> None:
 
 
 def test_notification_method_with_id_returns_method_not_found() -> None:
-    client = TestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(DUMMY_SERVER.app)
 
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 6, "method": "notifications/subscribe"},
-        headers={"Content-Type": "application/json"},
     )
-    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.status_code == HTTPStatus.NOT_FOUND
     assert response.json() == {
         "jsonrpc": "2.0",
         "id": 6,
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
-            "message": "Method not supported: notifications/subscribe",
+            "message": "Error validating message request",
         },
     }

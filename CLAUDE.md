@@ -73,19 +73,21 @@ the same wheel (`http-mcp`); `auth_mcp` is available via
 
 ### Internal Modules (prefixed with `_`)
 
-- **`_transport_base.py`** — Dual-era dispatch. Routes each request to the
-  *modern* (`2026-07-28`, stateless) or *legacy* (`initialize`-based) path via
-  `is_modern_request`, validates modern `_meta`, serves `server/discover`, and
-  stamps `resultType`/`_meta`/caching hints onto modern results only.
+- **`_transport_base.py`** — Single dispatch path for the one supported
+  revision. Validates each request's `_meta`, serves `server/discover`, and
+  stamps `resultType`/`_meta`/caching hints onto every result. There is
+  deliberately no second path: a request must not be able to select weaker
+  handling by declaring a different revision.
 - **`_transport_http.py`** — HTTP transport (ASGI, 4MB max message, content-type
   validation, `Origin` allowlist, and `MCP-Protocol-Version`/`Mcp-Method`/
-  `Mcp-Name`/`Mcp-Param-*` header-to-body validation for modern requests).
+  `Mcp-Name`/`Mcp-Param-*` header-to-body validation on every request — this
+  check must stay unconditional, see the note in `_validate_request_headers`).
 - **`_stdio_transport.py`** — STDIO transport (line-based JSON-RPC over
   stdin/stdout).
-- **`_mcp_types/`** — MCP protocol types (capabilities, messages, tools,
-  prompts, content, plus `versions`, `meta`, `results`, `discover`, `headers`).
-  Supported versions: 2026-07-28 (modern), 2025-11-25, 2025-06-18, 2025-03-26
-  (legacy). See the README's "Protocol Versions" section for what differs.
+- **`_mcp_types/`** — MCP protocol types (capabilities, tools, prompts, content,
+  plus `versions`, `meta`, `results`, `discover`, `headers`). The only supported
+  version is 2026-07-28; `initialize`, `notifications/initialized`, and `ping`
+  do not exist. See the README's "Protocol Version" section.
 - **`_json_rcp_types/`** — JSON-RPC message and error types.
 
 ### auth_mcp Package (`src/auth_mcp/`)
@@ -133,10 +135,12 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
 
 ### Test Structure
 
-Tests in `tests/` use pytest with pytest-asyncio. A test Starlette app lives in
-`tests/app/` with mock tools, prompts, authentication backend, and context.
-Tests use `httpx` with Starlette's `TestClient`. Auth tests are in
-`tests/auth_mcp/` mirroring the source layout.
+Tests in `tests/` use pytest with pytest-asyncio. Shared fixtures live in
+`tests/fixtures/` with mock tools, prompts, authentication backend, and context;
+`tests/fixtures/protocol.py` holds `MCPTestClient`, which completes the request
+envelope so individual tests stay about the behaviour they exercise. Tests use
+`httpx2` with Starlette's `TestClient`. Auth tests are in `tests/auth_mcp/`
+mirroring the source layout.
 
 ## Code Style Conventions
 

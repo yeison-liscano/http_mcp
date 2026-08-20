@@ -11,8 +11,8 @@ It is intended to be used with a Starlette or FastAPI application (see
 - [Features](#features)
 - [Installation](#installation)
 - [Server Architecture](#server-architecture)
-- [Protocol Versions](#protocol-versions)
-  - [What Changed in 2026-07-28](#what-changed-in-2026-07-28)
+- [Protocol Version](#protocol-version)
+  - [The 2026-07-28 Request Shape](#the-2026-07-28-request-shape)
   - [Caching Hints](#caching-hints)
   - [Origin Validation](#origin-validation)
   - [Mirroring Tool Parameters into Headers](#mirroring-tool-parameters-into-headers)
@@ -39,11 +39,10 @@ It is intended to be used with a Starlette or FastAPI application (see
 
 - **MCP Protocol Compliant**: Implements the MCP specification for tool and
   prompts discovery and execution. No support for notifications.
-- **Dual-Era Protocol Support**: Serves the stateless `2026-07-28` revision
-  (`server/discover`, per-request `_meta`, no handshake) alongside the
-  handshake-based `2025-11-25`, `2025-06-18`, and `2025-03-26` revisions. Each
-  request is routed to the era it declares, so old and new clients can share one
-  endpoint.
+- **One Protocol Revision**: Speaks the stateless `2026-07-28` revision only —
+  `server/discover`, per-request `_meta`, no handshake, no session. A single
+  dispatch path means a request cannot select weaker handling by declaring an
+  older revision.
 - **HTTP and STDIO Transport**: Uses HTTP (POST requests) or STDIO for
   communication.
 - **Async Support**: Built on `Starlette` or `FastAPI` for asynchronous request
@@ -134,30 +133,27 @@ app = Starlette(lifespan=lifespan)
 app.mount("/mcp", mcp_server.app)
 ```
 
-## Protocol Versions
+## Protocol Version
 
-The server implements four protocol revisions and picks between them per
-request, so a single endpoint serves both old and new clients:
+The server implements exactly one protocol revision, `2026-07-28`, and every
+request travels the same path. There is no version negotiation and no second set
+of rules a request can select into.
 
-| Revision | Era | Opens with | | ------------ | ------ |
------------------------------------- | | `2026-07-28` | modern | nothing — every
-request is stateless | | `2025-11-25` | legacy | `initialize` handshake | |
-`2025-06-18` | legacy | `initialize` handshake | | `2025-03-26` | legacy |
-`initialize` handshake |
+> **Breaking change in 0.17.0.** Support for the session-based revisions
+> `2025-11-25`, `2025-06-18`, and `2025-03-26` was removed, along with
+> `initialize`, `notifications/initialized`, and `ping`. A client that speaks
+> only those revisions can no longer talk to this server. Serving one revision
+> is also what makes the request-metadata headers below trustworthy: while two
+> eras coexisted, a request could skip the header checks by declaring the older
+> one, so an intermediary routing on `Mcp-Method` could be desynchronised from
+> the server acting on the body.
 
-A request is served under the modern rules when it calls `server/discover`, when
-its `params._meta` carries `io.modelcontextprotocol/protocolVersion`, or when
-its `MCP-Protocol-Version` header names a modern revision. Everything else —
-notably `initialize` — is served under the legacy rules, exactly as before.
-**Existing clients need no changes.**
+### The 2026-07-28 Request Shape
 
-### What Changed in 2026-07-28
+The revision has no session concept. In practice:
 
-The revision removed the session concept entirely. In practice:
-
-- **No handshake.** `initialize` and `notifications/initialized` are gone. Every
-  request restates its protocol version and the client's capabilities in
-  `_meta`:
+- **No handshake.** Every request restates its protocol version and the client's
+  capabilities in `_meta`:
 
   ```json
   {
@@ -177,17 +173,17 @@ The revision removed the session concept entirely. In practice:
   ```
 
   `protocolVersion` and `clientCapabilities` are required; omitting either gets
-  a `-32602` and HTTP 400. An unsupported version gets a `-32022` whose
-  `data.supported` lists every revision this server speaks.
+  a `-32602` and HTTP 400. Any other version gets a `-32022` whose
+  `data.supported` lists the one revision this server speaks.
 
 - **`server/discover` replaces `initialize` for capability discovery.** It
-  reports the supported versions, capabilities, instructions, and server
-  identity in one call, and is answered without any prior request:
+  reports the supported version, capabilities, instructions, and server identity
+  in one call, and is answered without any prior request:
 
   ```json
   {
     "resultType": "complete",
-    "supportedVersions": ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"],
+    "supportedVersions": ["2026-07-28"],
     "capabilities": { "tools": { "listChanged": false }, "prompts": { "listChanged": false } },
     "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "my-server", "version": "1.0.0" } },
     "ttlMs": 300000,
@@ -196,23 +192,24 @@ The revision removed the session concept entirely. In practice:
   ```
 
 - **Every result carries `resultType: "complete"`** and a `_meta` block naming
-  the server. Legacy responses are unchanged and carry neither.
+  the server.
 
-- **`ping` was removed**, along with `logging/setLevel` and the session and SSE
-  resumption machinery. Under the modern era these return `-32601` with HTTP
-  404; legacy clients can still call `ping`.
+- **`initialize`, `notifications/initialized`, `ping`, and `logging/setLevel` do
+  not exist**, along with the session and SSE resumption machinery. They return
+  `-32601` with HTTP 404. JSON-RPC notifications — a `notifications/*` message
+  with no `id` — still get `202 Accepted` and no body, because JSON-RPC forbids
+  responding to them.
 
-- **Required request headers.** Modern POSTs must send `MCP-Protocol-Version`
-  and `Mcp-Method`, plus `Mcp-Name` on `tools/call` and `prompts/get`. Each must
+- **Required request headers.** Every POST must send `MCP-Protocol-Version` and
+  `Mcp-Method`, plus `Mcp-Name` on `tools/call` and `prompts/get`. Each must
   match the corresponding body value, or the request is rejected with `-32020`
   (`HeaderMismatch`) and HTTP 400 — this stops a proxy routing on one value
   while the server acts on another. Values that cannot be expressed as plain
   ASCII use the `=?base64?...?=` envelope, which the server decodes before
   comparing.
 
-- **Unknown tools and prompts now report `-32602`** instead of `-32002`, which
-  the revision retired. This applies on every revision, since `-32602` is what
-  the tools and prompts specs always prescribed.
+- **Unknown tools and prompts report `-32602`**, which is what the tools and
+  prompts specs prescribe. `-32002` was retired by this revision.
 
 - **`Mcp-Session-Id` and `Last-Event-ID` are ignored**, and `GET`/`DELETE` on
   the MCP endpoint return `405 Method Not Allowed`.
@@ -224,8 +221,8 @@ applies to it.
 
 ### Caching Hints
 
-Modern `tools/list`, `prompts/list`, and `server/discover` results carry `ttlMs`
-and `cacheScope` so clients can avoid re-fetching a list that has not changed:
+`tools/list`, `prompts/list`, and `server/discover` results carry `ttlMs` and
+`cacheScope` so clients can avoid re-fetching a list that has not changed:
 
 ```python
 mcp_server = MCPServer(

@@ -19,11 +19,6 @@ class JSONRPCRequest(JSONRPCMessage):
         "tools/list",
         "tools/call",
         "server/discover",
-        "initialize",
-        "ping",
-        "notifications/subscribe",
-        "notifications/unsubscribe",
-        "notifications/initialized",
     ]
     params: dict[str, Any] | BaseModel | None = None
 
@@ -43,12 +38,6 @@ class JSONRPCResponse(JSONRPCMessage):
             message = "either result or error must be set"
             raise ValueError(message)
         return value
-
-
-class JSONRPCNotification(BaseModel):
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/initialized", "notifications/unsubscribe"]
-    params: dict[str, Any] | BaseModel | None = None
 
 
 class JSONRPCError(JSONRPCMessage):
