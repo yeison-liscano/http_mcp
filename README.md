@@ -151,6 +151,13 @@ of rules a request can select into.
 > one, so an intermediary routing on `Mcp-Method` could be desynchronised from
 > the server acting on the body.
 
+> **Breaking change in 0.18.0.** `ServerInterface.get_tool_input_schema` now
+> takes the `Request`, so authorization scopes are honoured before dispatch;
+> implementations of the interface must update, while `MCPServer` users are
+> unaffected. Mirrored `Mcp-Param-*` values are compared textually rather than
+> numerically, so a header reading `3.0` for `"replicas": 3` now gets `-32020`.
+> Every `notifications/*` method returns 404, the revision defining none.
+
 ### The 2026-07-28 Request Shape
 
 The revision has no session concept. In practice:
