@@ -5,6 +5,8 @@ on:
 
 jobs:
   sast-scan:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -15,4 +17,3 @@ jobs:
         uses: docker://docker.io/fluidattacks/sast:latest
         with:
           args: sast scan fluidattacks_sast_config.yaml
-
