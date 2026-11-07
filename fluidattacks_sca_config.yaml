@@ -5,9 +5,15 @@
 strict: true
 
 # General configuration
+# (the GitHub action overrides namespace with the repository name)
 namespace: simple-http-mcp
 working_dir: .
 language: EN
+
+# SARIF is what the workflow uploads to the GitHub Security tab
+output:
+  file_path: .fluidattacks-sca-results.sarif
+  format: SARIF
 
 # SCA specific configuration
 sca:

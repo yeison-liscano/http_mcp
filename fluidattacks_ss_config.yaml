@@ -1,0 +1,21 @@
+# Fluid Attacks Secret Scan Configuration
+# Hardcoded credentials and secrets detection
+#
+# The secret scan action reads only the `ss` and `output` keys. There is no
+# `strict` switch: the workflow fails whenever the scanner reports a secret.
+
+ss:
+  # Paths to scan in full mode (differential mode scans the changed files)
+  include:
+    - .
+
+  # Exclude metadata and local environments
+  exclude:
+    - .git/
+    - .venv/
+    - .direnv/
+
+# SARIF is what the workflow uploads to the GitHub Security tab
+output:
+  file_path: .fluidattacks-ss-results.sarif
+  format: SARIF

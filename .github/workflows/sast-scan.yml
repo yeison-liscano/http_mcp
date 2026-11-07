@@ -1,19 +1,55 @@
 name: SAST Security Scan
 on:
   push:
-    branches-ignore: [main]
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "0 8 * * 1" # weekly full scan, picks up checks added to the scanner
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   sast-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+      security-events: write # upload SARIF to the Security tab
     steps:
       - name: Checkout repository
         uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
-
-      - name: Run SAST Scanner
-        # NOFLUID: use always the latest version  
-        uses: docker://docker.io/fluidattacks/sast:latest
         with:
-          args: sast scan fluidattacks_sast_config.yaml
+          # The scanner runs in a third-party container with the workspace
+          # mounted; keep the token out of .git/config.
+          persist-credentials: false
+
+      - name: Run SAST scanner
+        id: scan
+        uses: fluidattacks/sast-action@bff64d57fdf98653f41f55922c1b0b472dd6a954 # 1.3.0
+        with:
+          scan_config_path: fluidattacks_sast_config.yaml
+          # Always scan the whole tree. Differential mode pulls in
+          # tj-actions/changed-files through the mutable tag @v46, which the
+          # SHA pin above does not cover.
+          scanner_mode: full
+
+      - name: Upload SARIF to the Security tab
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
+          category: fluidattacks-sast
+
+      # The action exits 0 even when strict mode finds vulnerabilities and only
+      # reports them through this output, so the gate lives here.
+      - name: Fail on vulnerabilities
+        if: ${{ steps.scan.outputs.vulnerabilities_found == 'true' }}
+        run: |
+          echo "::error::Fluid Attacks SAST found vulnerabilities. See the scan log or the Security tab."
+          exit 1
