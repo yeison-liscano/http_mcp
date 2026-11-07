@@ -1,21 +1,55 @@
 name: SCA Security Scan
 on:
   push:
-    branches-ignore: [main]
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "0 8 * * 1" # weekly full scan, catches CVEs published since the last push
+  workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   sca-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
     steps:
       - name: Checkout repository
         uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
-
-      - name: Run SCA Scanner
-        # NOFLUID: use always the latest version  
-        uses: docker://docker.io/fluidattacks/sca:latest
         with:
-          args: sca scan fluidattacks_sca_config.yaml
+          # The scanner runs in a third-party container with the workspace
+          # mounted; keep the token out of .git/config.
+          persist-credentials: false
 
+      - name: Run SCA scanner
+        id: scan
+        uses: fluidattacks/sca-action@4041124e360b62f382a16d552b8c71b1913aa249 # 1.2.0
+        with:
+          scan_config_path: fluidattacks_sca_config.yaml
+          # Always scan every manifest. Differential mode pulls in
+          # tj-actions/changed-files through the mutable tag @v46, which the
+          # SHA pin above does not cover.
+          scanner_mode: full
+
+      - name: Upload SARIF to the Security tab
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
+          category: fluidattacks-sca
+
+      # The action exits 0 even when strict mode finds vulnerabilities and only
+      # reports them through this output, so the gate lives here.
+      - name: Fail on vulnerabilities
+        if: ${{ steps.scan.outputs.vulnerabilities_found == 'true' }}
+        run: |
+          echo "::error::Fluid Attacks SCA found vulnerable dependencies. See the scan log or the Security tab."
+          exit 1

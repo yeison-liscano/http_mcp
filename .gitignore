@@ -9,4 +9,5 @@ __pycache__
 Fluid-Attacks-Results.csv
 FLUID_ATTACKS_SCAN_RESULTS.md
 Fluid-Attacks-SAST-Results.csv
+.fluidattacks-*-results.sarif
 .direnv/
