@@ -1,13 +1,12 @@
-from typing import Literal
+"""Exceptions that tool and prompt functions raise to report a failure.
+
+They exist for user code only: `Tool` and `Prompt` catch them at the call boundary and
+turn them into the values in `http_mcp.failures`. Nothing else in the library raises them,
+apart from `Arguments.get_state_key`, whose failure means the application was wired wrong.
+"""
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
-
-_MAX_NAME_LENGTH = 100
-
-
-def _safe_name(name: str) -> str:
-    """Truncate a user-supplied name for safe inclusion in error messages."""
-    return name[:_MAX_NAME_LENGTH]
+from http_mcp.failures import prompt_failure_message, tool_failure_message
 
 
 class BaseError(Exception):
@@ -20,34 +19,8 @@ class BaseError(Exception):
         return self.message
 
 
-class InsufficientScopeError(Exception):
-    """Raised when the request has a valid token but lacks the required scopes.
-
-    Handled by the HTTP transport as a 403 Forbidden response to trigger the
-    OAuth 2.1 step-up authorization flow. STDIO transport returns a JSON-RPC error.
-    """
-
-    def __init__(self, required_scopes: tuple[str, ...]) -> None:
-        self.required_scopes = required_scopes
-        super().__init__("Insufficient scope")
-
-
-class ProtocolError(BaseError):
-    """raise error related to protocol validations."""
-
-
 class ServerError(BaseError):
     """raise error related to server features."""
-
-
-class ToolNotFoundError(ServerError):
-    def __init__(self, tool_name: str) -> None:
-        super().__init__(
-            Error(
-                code=ErrorCode.INVALID_PARAMS,
-                description=f"Tool {_safe_name(tool_name)} not found",
-            ),
-        )
 
 
 class ToolInvocationError(ServerError):
@@ -55,17 +28,7 @@ class ToolInvocationError(ServerError):
         super().__init__(
             Error(
                 code=ErrorCode.INTERNAL_ERROR,
-                description=f"Error calling tool {_safe_name(tool_name)}: {message}",
-            ),
-        )
-
-
-class PromptNotFoundError(ServerError):
-    def __init__(self, prompt_name: str) -> None:
-        super().__init__(
-            Error(
-                code=ErrorCode.INVALID_PARAMS,
-                description=f"Prompt {_safe_name(prompt_name)} not found",
+                description=tool_failure_message(tool_name, message),
             ),
         )
 
@@ -75,21 +38,6 @@ class PromptInvocationError(ServerError):
         super().__init__(
             Error(
                 code=ErrorCode.INTERNAL_ERROR,
-                description=f"Error getting prompt {_safe_name(prompt_name)}: {message}",
+                description=prompt_failure_message(prompt_name, message),
             ),
         )
-
-
-class ArgumentsError(ProtocolError):
-    """raise error when the arguments of a tool or prompt are invalid."""
-
-    def __init__(
-        self,
-        feature_type: Literal["tool", "prompt"],
-        feature_name: str,
-        message: str,
-    ) -> None:
-        description = (
-            f"Error validating arguments for {feature_type} {_safe_name(feature_name)}: {message}"
-        )
-        super().__init__(Error(code=ErrorCode.INVALID_PARAMS, description=description))

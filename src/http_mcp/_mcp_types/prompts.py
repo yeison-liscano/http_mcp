@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -55,6 +56,15 @@ class PromptsListResponse(JSONRPCMessage):
 class PromptMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: TextContent
+
+
+@dataclass(frozen=True)
+class RenderedPrompt:
+    """What a prompt function produced, before the transport wraps it in a result."""
+
+    description: str
+    messages: tuple[PromptMessage, ...]
+    type: Literal["rendered_prompt"] = "rendered_prompt"
 
 
 class PromptGetResult(Result):

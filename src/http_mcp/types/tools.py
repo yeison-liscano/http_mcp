@@ -1,15 +1,20 @@
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+import logging
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, assert_never, cast
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from starlette.requests import Request
 
-from http_mcp.exceptions import ArgumentsError, ServerError, ToolInvocationError
+from http_mcp._parsing import InvalidModel, Parsed, parse_model
+from http_mcp.exceptions import ServerError, ToolInvocationError
+from http_mcp.failures import InvalidArguments, ToolInvocationFailed, tool_failure_message
 from http_mcp.types.models import Arguments, ErrorMessage
-from http_mcp.types.utils import generate_union_schema, sanitize_validation_errors
+from http_mcp.types.utils import generate_union_schema
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -28,9 +33,8 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         output: The Pydantic model class that defines the output schema.
             This model is used to generate the tool's output schema.
 
-        return_error_message: If True, any ToolInvocationError will be caught and the ErrorMessage
-        will be returned instead of returning a JSONRPCError.
-        If False (default), returns the raw output model directly or raises a ToolInvocationError.
+        return_error_message: If True, a failed invocation produces an ErrorMessage as the output
+        of the tool. If False (default), it is reported as a result with `isError` set.
 
         scopes: Works the same as starlette's scope. Is used to exposed tools given authorization
         scopes.
@@ -96,59 +100,70 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         schema["title"] = self.name + "Output"
         return schema
 
-    async def _invoke(
-        self,
-        args: dict,
-        request: Request,
-    ) -> TOutput:
-        # Handle functions without arguments
-        if issubclass(self.inputs, type(None)):
-            try:
-                if inspect.iscoroutinefunction(self.func):
-                    return await self.func()
+    async def _run_without_arguments(self) -> TOutput:
+        if inspect.iscoroutinefunction(self.func):
+            return await self.func()
 
-                return await asyncio.to_thread(
-                    cast(
-                        "Callable[[], TOutput]",
-                        self.func,
-                    ),
-                )
-            except ServerError:
-                raise
-            except Exception as e:
-                raise ToolInvocationError(self.name, "Unknown error") from e
-
-        try:
-            validated_args = self.inputs.model_validate(args)
-        except ValidationError as e:
-            raise ArgumentsError("tool", self.name, sanitize_validation_errors(e)) from e
-
-        try:
-            _args = Arguments[TInputs](request, validated_args)
-            if inspect.iscoroutinefunction(self.func):
-                return await self.func(_args)
-
-            _func = cast(
-                "Callable[[Arguments[TInputs]], TOutput]",
+        return await asyncio.to_thread(
+            cast(
+                "Callable[[], TOutput]",
                 self.func,
-            )
-            return await asyncio.to_thread(_func, _args)
-        except ServerError:
-            raise
-        except Exception as e:
-            raise ToolInvocationError(self.name, "Unknown error") from e
+            ),
+        )
+
+    async def _run_with_arguments(self, arguments: Arguments[TInputs]) -> TOutput:
+        if inspect.iscoroutinefunction(self.func):
+            return await self.func(arguments)
+
+        _func = cast(
+            "Callable[[Arguments[TInputs]], TOutput]",
+            self.func,
+        )
+        return await asyncio.to_thread(_func, arguments)
+
+    async def _contain(
+        self,
+        run: Coroutine[Any, Any, TOutput],
+    ) -> TOutput | ErrorMessage | ToolInvocationFailed:
+        """Run the tool function, turning anything it raises into a value.
+
+        Tool functions are user code and may raise anything, so this is the boundary
+        where exceptions stop.
+        """
+        try:
+            return await run
+        except ToolInvocationError as e:
+            if self.return_error_message:
+                return ErrorMessage(error_message=e.message)
+            LOGGER.exception("Error calling tool %s", self.name)
+            return ToolInvocationFailed(e.message)
+        except ServerError as e:
+            LOGGER.exception("Error calling tool %s", self.name)
+            return ToolInvocationFailed(e.message)
+        except Exception:
+            LOGGER.exception("Error calling tool %s", self.name)
+            message = tool_failure_message(self.name, "Unknown error")
+            if self.return_error_message:
+                return ErrorMessage(error_message=message)
+            return ToolInvocationFailed(message)
 
     async def invoke(
         self,
         args: dict,
         request: Request,
-    ) -> TOutput | ErrorMessage:
-        try:
-            return await self._invoke(args, request)
-        except ToolInvocationError as e:
-            if self.return_error_message:
-                return ErrorMessage(error_message=e.message)
-            raise
+    ) -> TOutput | ErrorMessage | InvalidArguments | ToolInvocationFailed:
+        # Handle functions without arguments
+        if issubclass(self.inputs, type(None)):
+            return await self._contain(self._run_without_arguments())
+
+        match parse_model(self.inputs, args):
+            case InvalidModel(description=description):
+                return InvalidArguments("tool", self.name, description)
+            case Parsed(value=validated_args):
+                arguments = Arguments[TInputs](request, validated_args)
+                return await self._contain(self._run_with_arguments(arguments))
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def generate_json_schema(self) -> dict:
         return {

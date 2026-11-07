@@ -11,3 +11,7 @@ FLUID_ATTACKS_SCAN_RESULTS.md
 Fluid-Attacks-SAST-Results.csv
 .fluidattacks-*-results.sarif
 .direnv/
+/.agent/
+/.agents/
+/.claude/
+/.codex/

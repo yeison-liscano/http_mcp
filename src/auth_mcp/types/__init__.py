@@ -3,19 +3,27 @@ from auth_mcp.types.metadata import (
     AuthorizationServerMetadata,
     ProtectedResourceMetadata,
 )
-from auth_mcp.types.oauth import AuthorizationRequest, TokenRequest, TokenResponse
+from auth_mcp.types.oauth import (
+    AuthorizationCodeTokenRequest,
+    AuthorizationRequest,
+    RefreshTokenRequest,
+    TokenRequest,
+    TokenResponse,
+)
 from auth_mcp.types.registration import (
     ClientRegistrationRequest,
     ClientRegistrationResponse,
 )
 
 __all__ = (
+    "AuthorizationCodeTokenRequest",
     "AuthorizationRequest",
     "AuthorizationServerMetadata",
     "ClientRegistrationRequest",
     "ClientRegistrationResponse",
     "OAuthErrorResponse",
     "ProtectedResourceMetadata",
+    "RefreshTokenRequest",
     "TokenRequest",
     "TokenResponse",
     "WWWAuthenticateChallenge",

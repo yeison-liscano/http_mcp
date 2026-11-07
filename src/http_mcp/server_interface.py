@@ -4,8 +4,29 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from http_mcp._mcp_types.capabilities import ServerCapabilities
-from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
+from http_mcp._mcp_types.prompts import ProtocolPrompt, RenderedPrompt
 from http_mcp._mcp_types.results import CacheScope
+from http_mcp.failures import (
+    InsufficientScope,
+    InvalidArguments,
+    PromptInvocationFailed,
+    PromptNotFound,
+    PromptServerFailure,
+    ToolInvocationFailed,
+    ToolNotFound,
+)
+
+type ToolCallOutcome = (
+    BaseModel | ToolNotFound | InsufficientScope | InvalidArguments | ToolInvocationFailed
+)
+type PromptGetOutcome = (
+    RenderedPrompt
+    | PromptNotFound
+    | InsufficientScope
+    | InvalidArguments
+    | PromptInvocationFailed
+    | PromptServerFailure
+)
 
 
 class ServerInterface(ABC):
@@ -70,7 +91,7 @@ class ServerInterface(ABC):
         tool_name: str,
         args: dict,
         request: Request,
-    ) -> BaseModel:
+    ) -> ToolCallOutcome:
         raise NotImplementedError
 
     @abstractmethod
@@ -78,7 +99,7 @@ class ServerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def list_prompts(self, request: Request) -> PromptListResult:
+    def list_prompts(self, request: Request) -> tuple[ProtocolPrompt, ...]:
         raise NotImplementedError
 
     @abstractmethod
@@ -87,5 +108,5 @@ class ServerInterface(ABC):
         prompt_name: str,
         arguments: dict,
         request: Request,
-    ) -> PromptGetResult:
+    ) -> PromptGetOutcome:
         raise NotImplementedError

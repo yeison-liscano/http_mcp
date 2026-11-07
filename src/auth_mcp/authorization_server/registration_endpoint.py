@@ -1,18 +1,19 @@
 import json
 import logging
 from http import HTTPStatus
+from typing import assert_never
 
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from auth_mcp.authorization_server.client_store import ClientStore
-from auth_mcp.exceptions import RegistrationError
+from auth_mcp.authorization_server.client_store import ClientStore, RegistrationRejected
 from auth_mcp.types.errors import OAuthErrorResponse
 from auth_mcp.types.registration import (
     DISALLOWED_REDIRECT_SCHEMES,
     ClientRegistrationRequest,
+    ClientRegistrationResponse,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -97,16 +98,17 @@ class DynamicClientRegistrationEndpoint:
         if len(body) > _MAX_BODY_SIZE:
             return _error_response("Request body too large")
 
-        registration_request = self._parse_body(body)
-        if isinstance(registration_request, Response):
-            return registration_request
+        match self._parse_body(body):
+            case Response() as rejection:
+                return rejection
+            case ClientRegistrationRequest() as registration_request:
+                return await self._register(registration_request)
+            case _ as unreachable:
+                assert_never(unreachable)
 
+    async def _register(self, registration_request: ClientRegistrationRequest) -> Response:
         try:
-            registration_response = await self._client_store.register_client(
-                registration_request,
-            )
-        except RegistrationError as exc:
-            return _error_response(exc.message)
+            outcome = await self._client_store.register_client(registration_request)
         except Exception:
             LOGGER.exception("Unexpected error during client registration")
             return _error_response(
@@ -114,14 +116,20 @@ class DynamicClientRegistrationEndpoint:
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
-        return Response(
-            content=json.dumps(
-                registration_response.model_dump(mode="json", exclude_none=True),
-            ).encode("utf-8"),
-            status_code=HTTPStatus.CREATED,
-            media_type="application/json",
-            headers=_SECURITY_HEADERS,
-        )
+        match outcome:
+            case RegistrationRejected(reason=reason):
+                return _error_response(reason)
+            case ClientRegistrationResponse() as registration_response:
+                return Response(
+                    content=json.dumps(
+                        registration_response.model_dump(mode="json", exclude_none=True),
+                    ).encode("utf-8"),
+                    status_code=HTTPStatus.CREATED,
+                    media_type="application/json",
+                    headers=_SECURITY_HEADERS,
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def _parse_body(self, body: bytes) -> ClientRegistrationRequest | Response:
         try:

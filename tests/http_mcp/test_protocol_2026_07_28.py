@@ -552,6 +552,17 @@ def test_param_headers_matching_the_body_are_accepted() -> None:
     assert response.json()["result"]["structuredContent"] == {"executed": "us-west1:SELECT 1"}
 
 
+def test_number_too_large_for_a_float_is_a_header_mismatch() -> None:
+    """Comparing it must not crash: the value comes straight from an untrusted body."""
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": 10**400, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "1e400"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
 def test_param_header_mismatching_the_body_is_rejected() -> None:
     response = call_execute_sql(
         {"region": "us-west1", "replicas": 3, "query": "SELECT 1"},
@@ -580,6 +591,54 @@ def test_param_header_sent_without_the_argument_is_rejected() -> None:
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert "has no value in the body" in response.json()["error"]["message"]
+
+
+def test_param_header_sent_for_an_explicit_null_is_rejected() -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": None, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "3"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
+def test_argument_absent_from_both_header_and_body_is_accepted() -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+
+
+def test_explicit_null_without_a_header_passes_the_header_check() -> None:
+    """Validating the argument is the tool's job, which reports it as invalid params."""
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": None, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+
+
+@pytest.mark.parametrize(
+    "header_value",
+    [
+        pytest.param("=?base64?not!valid!?=", id="malformed-sentinel"),
+        pytest.param("bad\x7fvalue", id="outside-the-field-value-set"),
+    ],
+)
+def test_param_header_with_an_unusable_value_is_rejected(header_value: str) -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "query": "SELECT 1"},
+        **{"Mcp-Param-Region": header_value},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert "not a valid header value" in response.json()["error"]["message"]
 
 
 def test_integer_param_headers_compare_textually() -> None:

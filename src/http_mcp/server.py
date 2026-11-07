@@ -1,16 +1,15 @@
-from pydantic import BaseModel
 from starlette.authentication import has_required_scope
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
 from http_mcp._mcp_types.capabilities import Capability, ServerCapabilities
 from http_mcp._mcp_types.headers import DuplicateHeaderParamError, collect_header_params
-from http_mcp._mcp_types.prompts import PromptGetResult, PromptListResult
+from http_mcp._mcp_types.prompts import ProtocolPrompt
 from http_mcp._mcp_types.results import CacheScope
 from http_mcp._stdio_transport import StdioTransport
 from http_mcp._transport_http import HTTPTransport
-from http_mcp.exceptions import InsufficientScopeError, PromptNotFoundError, ToolNotFoundError
-from http_mcp.server_interface import ServerInterface
+from http_mcp.failures import InsufficientScope, PromptNotFound, ToolNotFound
+from http_mcp.server_interface import PromptGetOutcome, ServerInterface, ToolCallOutcome
 from http_mcp.types import Prompt, Tool
 
 DEFAULT_CACHE_TTL_MS = 300_000
@@ -180,24 +179,20 @@ class MCPServer(ServerInterface):
         tool_name: str,
         args: dict,
         request: Request,
-    ) -> BaseModel:
-        try:
-            tool = next(_tool for _tool in self._tools if _tool.name == tool_name)
-        except StopIteration as e:
-            raise ToolNotFoundError(tool_name) from e
+    ) -> ToolCallOutcome:
+        tool = next((_tool for _tool in self._tools if _tool.name == tool_name), None)
+        if tool is None:
+            return ToolNotFound(tool_name)
         if not _check_scope(request, tool.scopes):
-            raise InsufficientScopeError(tool.scopes)
+            return InsufficientScope(tool.scopes)
 
         return await tool.invoke(args, request)
 
-    def list_prompts(self, request: Request) -> PromptListResult:
-        return PromptListResult(
-            prompts=tuple(
-                _prompt.to_prompt_protocol_object()
-                for _prompt in self._prompts
-                if _check_scope(request, _prompt.scopes)
-            ),
-            next_cursor=None,
+    def list_prompts(self, request: Request) -> tuple[ProtocolPrompt, ...]:
+        return tuple(
+            _prompt.to_prompt_protocol_object()
+            for _prompt in self._prompts
+            if _check_scope(request, _prompt.scopes)
         )
 
     async def get_prompt(
@@ -205,16 +200,11 @@ class MCPServer(ServerInterface):
         prompt_name: str,
         arguments: dict,
         request: Request,
-    ) -> PromptGetResult:
-        try:
-            _prompt = next(_prompt for _prompt in self._prompts if _prompt.name == prompt_name)
-        except StopIteration as e:
-            raise PromptNotFoundError(prompt_name) from e
-        if not _check_scope(request, _prompt.scopes):
-            raise InsufficientScopeError(_prompt.scopes)
+    ) -> PromptGetOutcome:
+        prompt = next((_prompt for _prompt in self._prompts if _prompt.name == prompt_name), None)
+        if prompt is None:
+            return PromptNotFound(prompt_name)
+        if not _check_scope(request, prompt.scopes):
+            return InsufficientScope(prompt.scopes)
 
-        result = await _prompt.invoke(arguments, request)
-        return PromptGetResult(
-            description=_prompt.description,
-            messages=result,
-        )
+        return await prompt.invoke(arguments, request)

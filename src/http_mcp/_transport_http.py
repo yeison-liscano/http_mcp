@@ -1,9 +1,9 @@
-import json
 import logging
+from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Literal, assert_never
 
-from pydantic import ValidationError
+from pydantic import BaseModel
 from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
@@ -15,8 +15,10 @@ from http_mcp._json_rcp_types.messages import (
 )
 from http_mcp._mcp_types.headers import (
     HEADER_PARAM_PREFIX,
-    MISSING,
+    ArgumentAbsent,
+    ArgumentPresent,
     DuplicateHeaderParamError,
+    MalformedHeaderValue,
     collect_header_params,
     decode_header_value,
     extract_argument,
@@ -24,9 +26,15 @@ from http_mcp._mcp_types.headers import (
     values_match,
 )
 from http_mcp._mcp_types.meta import META_PROTOCOL_VERSION
-from http_mcp._transport_base import PROTOCOL_VERSION_HEADER, BaseTransport, request_meta
+from http_mcp._parsing import InvalidJson, InvalidModel, Parsed, parse_json, parse_model
+from http_mcp._transport_base import (
+    PROTOCOL_VERSION_HEADER,
+    BaseTransport,
+    Dispatched,
+    request_meta,
+)
 from http_mcp._transport_types import ErrorResponseInfo
-from http_mcp.exceptions import InsufficientScopeError
+from http_mcp.failures import InsufficientScope
 from http_mcp.server_interface import ServerInterface
 
 LOGGER = logging.getLogger(__name__)
@@ -48,77 +56,120 @@ _MAX_ECHOED_VALUE = 100
 KNOWN_NOTIFICATIONS: frozenset[str] = frozenset()
 
 
+@dataclass(frozen=True)
+class HeaderMismatch:
+    """A mirrored header disagrees with the body, or is missing or malformed."""
+
+    detail: str
+    type: Literal["header_mismatch"] = "header_mismatch"
+
+
+class _RequestId(BaseModel):
+    id: int | str | None = None
+
+
+def _request_id(raw_message: dict) -> int | str | None:
+    """Return the id to echo in an error, or None when it is not a valid JSON-RPC id."""
+    match parse_model(_RequestId, raw_message):
+        case Parsed(value=request_id):
+            return request_id.id
+        case InvalidModel():
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def _echo(value: object) -> str:
     """Render an untrusted header or body value for an error message."""
     return repr(str(value)[:_MAX_ECHOED_VALUE])
 
 
-def _validate_version_header(headers: Headers, params: dict[str, Any]) -> str | None:
+def _validate_version_header(headers: Headers, params: dict[str, Any]) -> HeaderMismatch | None:
     header_version = headers.get(PROTOCOL_VERSION_HEADER)
     if header_version is None:
-        return "MCP-Protocol-Version header is required"
+        return HeaderMismatch("MCP-Protocol-Version header is required")
     declared_version = request_meta(params).get(META_PROTOCOL_VERSION)
     if declared_version is not None and header_version != declared_version:
-        return (
+        return HeaderMismatch(
             f"MCP-Protocol-Version header value {_echo(header_version)} does not match "
-            f"body value {_echo(declared_version)}"
+            f"body value {_echo(declared_version)}",
         )
     return None
 
 
-def _validate_method_header(headers: Headers, method: object) -> str | None:
+def _validate_method_header(headers: Headers, method: object) -> HeaderMismatch | None:
     header_method = headers.get(_METHOD_HEADER)
     if header_method is None:
-        return "Mcp-Method header is required"
+        return HeaderMismatch("Mcp-Method header is required")
     if header_method != method:
-        return (
+        return HeaderMismatch(
             f"Mcp-Method header value {_echo(header_method)} does not match "
-            f"body value {_echo(method)}"
+            f"body value {_echo(method)}",
         )
     return None
 
 
-def _validate_name_header(headers: Headers, method: str, params: dict[str, Any]) -> str | None:
+def _validate_name_header(
+    headers: Headers,
+    method: str,
+    params: dict[str, Any],
+) -> HeaderMismatch | None:
     raw_value = headers.get(_NAME_HEADER)
     if raw_value is None:
-        return f"Mcp-Name header is required for {method} requests"
-    decoded = _decode(raw_value)
-    if decoded is None:
-        return "Mcp-Name header value is not a valid header value"
-    body_name = params.get("name")
-    if decoded != body_name:
-        return (
-            f"Mcp-Name header value {_echo(decoded)} does not match body value {_echo(body_name)}"
-        )
-    return None
+        return HeaderMismatch(f"Mcp-Name header is required for {method} requests")
+    match _decode(raw_value):
+        case MalformedHeaderValue():
+            return HeaderMismatch("Mcp-Name header value is not a valid header value")
+        case str() as decoded:
+            body_name = params.get("name")
+            if decoded != body_name:
+                return HeaderMismatch(
+                    f"Mcp-Name header value {_echo(decoded)} does not match "
+                    f"body value {_echo(body_name)}",
+                )
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _validate_param_header(
     raw_value: str | None,
     header_name: str,
-    body_value: object,
-) -> str | None:
+    argument: ArgumentAbsent | ArgumentPresent,
+) -> HeaderMismatch | None:
     label = f"Mcp-Param-{header_name}"
-    if body_value is MISSING or body_value is None:
-        if raw_value is not None:
-            return f"{label} header was sent but the argument has no value in the body"
-        return None
-    if raw_value is None:
-        return f"{label} header is required because the argument is present in the body"
-    decoded = _decode(raw_value)
-    if decoded is None:
-        return f"{label} header value is not a valid header value"
-    if not values_match(decoded, body_value):
-        return (
-            f"{label} header value {_echo(decoded)} does not match body value {_echo(body_value)}"
-        )
-    return None
+    match argument:
+        case ArgumentAbsent() | ArgumentPresent(value=None):
+            if raw_value is None:
+                return None
+            return HeaderMismatch(
+                f"{label} header was sent but the argument has no value in the body",
+            )
+        case ArgumentPresent(value=body_value):
+            if raw_value is None:
+                return HeaderMismatch(
+                    f"{label} header is required because the argument is present in the body",
+                )
+            match _decode(raw_value):
+                case MalformedHeaderValue():
+                    return HeaderMismatch(f"{label} header value is not a valid header value")
+                case str() as decoded:
+                    if values_match(decoded, body_value):
+                        return None
+                    return HeaderMismatch(
+                        f"{label} header value {_echo(decoded)} does not match "
+                        f"body value {_echo(body_value)}",
+                    )
+                case _ as unreachable:
+                    assert_never(unreachable)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
-def _decode(raw_value: str) -> str | None:
-    """Return the usable header value, or None if it is malformed."""
+def _decode(raw_value: str) -> str | MalformedHeaderValue:
+    """Return the usable header value."""
     if not is_valid_header_value(raw_value):
-        return None
+        return MalformedHeaderValue()
     return decode_header_value(raw_value)
 
 
@@ -213,20 +264,20 @@ class HTTPTransport(BaseTransport):
             )
             return
 
-        try:
-            raw_message = json.loads(body)
-        except json.JSONDecodeError:
-            await self._send_error_response(
-                send,
-                ErrorResponseInfo(
-                    protocol_code=ErrorCode.INVALID_PARAMS,
-                    http_status_code=HTTPStatus.BAD_REQUEST,
-                    message="Parse error: Invalid body",
-                ),
-            )
-            return
-
-        await self._handle_raw_message(raw_message, send, request)
+        match parse_json(body):
+            case InvalidJson():
+                await self._send_error_response(
+                    send,
+                    ErrorResponseInfo(
+                        protocol_code=ErrorCode.INVALID_PARAMS,
+                        http_status_code=HTTPStatus.BAD_REQUEST,
+                        message="Parse error: Invalid body",
+                    ),
+                )
+            case Parsed(value=raw_message):
+                await self._handle_raw_message(raw_message, send, request)
+            case _ as unreachable:
+                assert_never(unreachable)
 
     async def _handle_raw_message(
         self,
@@ -244,7 +295,7 @@ class HTTPTransport(BaseTransport):
                     message="Invalid Request: body must be a single JSON-RPC request object",
                 ),
             )
-            return None
+            return
 
         method = raw_message.get("method")
         is_notification = (
@@ -264,24 +315,24 @@ class HTTPTransport(BaseTransport):
                     message=f"Method not supported: {_echo(method)}",
                 ),
             )
-            return None
+            return
 
         # Every request carries the metadata envelope, so every request is checked.
         # There is no second dispatch path a caller could pick to skip this —
         # notifications included, which is why this sits above the 202 below.
         mismatch = self._validate_request_headers(raw_message, request)
         if mismatch is not None:
-            LOGGER.error("Header validation failed: %s", mismatch)
+            LOGGER.error("Header validation failed: %s", mismatch.detail)
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    message_id=raw_message.get("id"),
+                    message_id=_request_id(raw_message),
                     protocol_code=ErrorCode.HEADER_MISMATCH,
                     http_status_code=HTTPStatus.BAD_REQUEST,
-                    message=f"Header mismatch: {mismatch}",
+                    message=f"Header mismatch: {mismatch.detail}",
                 ),
             )
-            return None
+            return
 
         if is_notification:
             await send(
@@ -299,42 +350,46 @@ class HTTPTransport(BaseTransport):
                     "more_body": False,
                 },
             )
-            return None
+            return
 
-        try:
-            request_message = JSONRPCRequest.model_validate(raw_message)
-        except ValidationError:
-            LOGGER.exception("Error validating message")
-            is_invalid_method = raw_message.get("method", "") not in self.supported_methods
-            await self._send_error_response(
-                send,
-                ErrorResponseInfo(
-                    message_id=raw_message.get("id"),
-                    protocol_code=(
-                        ErrorCode.METHOD_NOT_FOUND
-                        if is_invalid_method
-                        else ErrorCode.INVALID_PARAMS
+        match parse_model(JSONRPCRequest, raw_message):
+            case InvalidModel():
+                LOGGER.error("Error validating message")
+                is_invalid_method = raw_message.get("method", "") not in self.supported_methods
+                await self._send_error_response(
+                    send,
+                    ErrorResponseInfo(
+                        message_id=_request_id(raw_message),
+                        protocol_code=(
+                            ErrorCode.METHOD_NOT_FOUND
+                            if is_invalid_method
+                            else ErrorCode.INVALID_PARAMS
+                        ),
+                        http_status_code=(
+                            HTTPStatus.NOT_FOUND if is_invalid_method else HTTPStatus.BAD_REQUEST
+                        ),
+                        message="Error validating message request",
                     ),
-                    http_status_code=(
-                        HTTPStatus.NOT_FOUND if is_invalid_method else HTTPStatus.BAD_REQUEST
-                    ),
-                    message="Error validating message request",
-                ),
-            )
-            return None
-        else:
-            return await self._process_messages(request_message, send, request)
+                )
+            case Parsed(value=request_message):
+                await self._process_messages(request_message, send, request)
+            case _ as unreachable:
+                assert_never(unreachable)
 
     # ------------------------------------------------------------------
     # Request metadata headers
     # ------------------------------------------------------------------
 
-    def _validate_request_headers(self, raw_message: dict, request: Request) -> str | None:
+    def _validate_request_headers(
+        self,
+        raw_message: dict,
+        request: Request,
+    ) -> HeaderMismatch | None:
         """Check the mirrored headers against the body.
 
         A load balancer may route on the header while the server acts on the body, so
-        the two disagreeing is a security problem, not a cosmetic one. Returns a
-        description of the first disagreement, or None when they all agree.
+        the two disagreeing is a security problem, not a cosmetic one. Returns the
+        first disagreement, or None when they all agree.
 
         This runs on every request. The check must not be reachable around: a caller
         that could opt out of it could desynchronise an intermediary from the server.
@@ -365,7 +420,7 @@ class HTTPTransport(BaseTransport):
         headers: Headers,
         params: dict[str, Any],
         request: Request,
-    ) -> str | None:
+    ) -> HeaderMismatch | None:
         """Validate the `Mcp-Param-*` headers a tool's `x-mcp-header` annotations require.
 
         Headers that no annotation claims are ignored, as intermediaries are expected to
@@ -390,7 +445,7 @@ class HTTPTransport(BaseTransport):
             # A colliding schema cannot be checked correctly, so refuse the call rather
             # than serve it with one of the two annotations silently unenforced.
             LOGGER.exception("Tool schema declares a duplicate x-mcp-header")
-            return "tool schema declares a duplicate x-mcp-header annotation"
+            return HeaderMismatch("tool schema declares a duplicate x-mcp-header annotation")
         if not annotated:
             return None
 
@@ -418,10 +473,7 @@ class HTTPTransport(BaseTransport):
         request: Request,
     ) -> None:
         try:
-            response, status_code = await self._process_request(message, request)
-        except InsufficientScopeError:
-            await self._send_forbidden_response(send)
-            return
+            outcome = await self._process_request(message, request)
         except Exception:
             LOGGER.exception("Unexpected error processing request")
             await self._send_error_response(
@@ -435,24 +487,32 @@ class HTTPTransport(BaseTransport):
             )
             return
 
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status_code.value,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    *_SECURITY_HEADERS,
-                ],
-            },
-        )
+        match outcome:
+            case InsufficientScope():
+                await self._send_forbidden_response(send)
+            case Dispatched(response=response, status=status_code):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": status_code.value,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            *_SECURITY_HEADERS,
+                        ],
+                    },
+                )
 
-        await send(
-            {
-                "type": "http.response.body",
-                "body": response.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8"),
-                "more_body": False,
-            },
-        )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": response.model_dump_json(by_alias=True, exclude_none=True).encode(
+                            "utf-8",
+                        ),
+                        "more_body": False,
+                    },
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     async def _send_forbidden_response(self, send: Send) -> None:
         await send(

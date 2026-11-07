@@ -41,8 +41,8 @@ All exceptions inherit from `AuthError`, which carries a `.message` attribute.
 ---------------------------------------------- | | `TokenValidationError` |
 Token is invalid, expired, or wrong audience | | `InsufficientScopeError` |
 Token lacks required scopes (carries `.required_scopes`) | | `DiscoveryError` |
-Authorization server discovery failed | | `RegistrationError` | Dynamic Client
-Registration rejected | | `PKCEError` | PKCE verification failed |
+Authorization server discovery failed | | `PKCEError` | PKCE verification failed
+|
 
 ______________________________________________________________________
 
@@ -71,9 +71,12 @@ endpoints and capabilities. Key fields:
 
 ### `oauth.py`
 
-- **`TokenRequest`** — `grant_type` is
-  `Literal["authorization_code", "refresh_token"]`, plus fields for `code`,
-  `redirect_uri`, `code_verifier`, `refresh_token`, `client_id`, and `resource`.
+- **`TokenRequest`** — discriminated union on `grant_type`, so each grant
+  carries exactly the fields it needs. `AuthorizationCodeTokenRequest` requires
+  `code` and `code_verifier`; `RefreshTokenRequest` requires `refresh_token`.
+  Both accept optional `client_id` and `resource`, and the code grant also
+  accepts `redirect_uri`. Parse an incoming request with
+  `TypeAdapter(TokenRequest).validate_python(...)`.
 - **`TokenResponse`** — `access_token`, `token_type` (default `"Bearer"`),
   `expires_in`, optional `refresh_token` and `scope`.
 - **`AuthorizationRequest`** — PKCE-required authorization request with
@@ -186,17 +189,19 @@ This is **Phase 2** of the auth implementation.
 ### ClientStore
 
 Abstract base class for persisting registered clients. You implement
-`register_client(request) -> ClientRegistrationResponse` with your storage logic
-(database, in-memory, etc.).
+`register_client(request) -> ClientRegistrationResponse | RegistrationRejected`
+with your storage logic (database, in-memory, etc.).
 
 ```python
-from auth_mcp.authorization_server import ClientStore
+from auth_mcp.authorization_server import ClientStore, RegistrationRejected
 from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
 
 class MyClientStore(ClientStore):
     async def register_client(
         self, request: ClientRegistrationRequest
-    ) -> ClientRegistrationResponse:
+    ) -> ClientRegistrationResponse | RegistrationRejected:
+        if not is_allowed(request):
+            return RegistrationRejected("Registration is closed")
         client_id = generate_secure_id()  # Use secrets.token_urlsafe()
         # Persist the client...
         return ClientRegistrationResponse(
@@ -234,7 +239,8 @@ ASGI handler for `/register` implementing RFC 7591:
 - **Returns** 201 Created with `ClientRegistrationResponse` JSON on success.
 - **Error responses** use `OAuthErrorResponse` with
   `error: "invalid_client_metadata"` (per RFC 7591 Section 3.2.2).
-- Catches `RegistrationError` from the store for application-level rejections.
+- A `RegistrationRejected` from the store answers 400 with its `reason`. A store
+  that raises answers 500 without revealing the error.
 
 ### Wiring into the Integration Helper
 
