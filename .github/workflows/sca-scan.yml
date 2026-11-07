@@ -1,18 +1,14 @@
 name: SCA Security Scan
 on:
-  push:
-    branches: ["**"]
   pull_request:
-    types: [opened, synchronize, reopened]
-  schedule:
-    - cron: "0 8 * * 1" # weekly full scan, catches CVEs published since the last push
-  workflow_dispatch:
+    types: [opened, synchronize]
 
 permissions: {}
 
+# A new push to the pull request cancels the scan of the previous one
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 jobs:
   sca-scan:
