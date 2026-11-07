@@ -5,8 +5,11 @@ from base64 import b64encode
 import pytest
 
 from http_mcp._mcp_types.headers import (
-    MISSING,
+    ArgumentAbsent,
+    ArgumentPresent,
     DuplicateHeaderParamError,
+    JsonValue,
+    MalformedHeaderValue,
     collect_header_params,
     decode_header_value,
     extract_argument,
@@ -38,7 +41,7 @@ def test_sentinel_round_trips(value: str) -> None:
     ["=?base64?not!valid!?=", f"=?base64?{b64encode(bytes([255])).decode()}?="],
 )
 def test_malformed_sentinel_payloads_are_rejected(value: str) -> None:
-    assert decode_header_value(value) is None
+    assert decode_header_value(value) == MalformedHeaderValue()
 
 
 def test_a_value_too_short_to_hold_both_markers_is_not_a_sentinel() -> None:
@@ -138,20 +141,18 @@ def test_absent_or_unusable_annotations_yield_nothing(schema: dict) -> None:
 
 
 def test_a_value_is_read_from_its_exact_path() -> None:
-    assert extract_argument({"nested": {"tenant": "acme"}}, ("nested", "tenant")) == "acme"
+    assert extract_argument({"nested": {"tenant": "acme"}}, ("nested", "tenant")) == (
+        ArgumentPresent("acme")
+    )
 
 
 def test_an_explicit_null_is_distinguished_from_an_absent_key() -> None:
-    assert extract_argument({"region": None}, ("region",)) is None
-    assert extract_argument({}, ("region",)) is MISSING
+    assert extract_argument({"region": None}, ("region",)) == ArgumentPresent(None)
+    assert extract_argument({}, ("region",)) == ArgumentAbsent()
 
 
 def test_a_path_running_through_a_non_mapping_is_missing() -> None:
-    assert extract_argument({"nested": "scalar"}, ("nested", "tenant")) is MISSING
-
-
-def test_the_missing_sentinel_is_readable() -> None:
-    assert repr(MISSING) == "<missing>"
+    assert extract_argument({"nested": "scalar"}, ("nested", "tenant")) == ArgumentAbsent()
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +171,11 @@ def test_the_missing_sentinel_is_readable() -> None:
         ("42.0", 42.0, True),
         ("42", 41, False),
         ("not-a-number", 42, False),
+        # Adjacent integers above 2**53 must retain their exact identity.
+        ("9007199254740992", 9007199254740993, False),
+        ("9007199254740993", 9007199254740993, True),
+        ("-9007199254740992", -9007199254740993, False),
+        ("-9007199254740993", -9007199254740993, True),
         # A header only matches the value as JSON writes it. `float()` coercion used
         # to call all of these equal to 42, while an intermediary keying on the raw
         # header string saw something else entirely.
@@ -183,11 +189,14 @@ def test_the_missing_sentinel_is_readable() -> None:
         ("us-west1", "us-west1", True),
         ("us-west1", "eu-west1", False),
         ("anything", ["a", "list"], False),
+        ("anything", {"an": "object"}, False),
+        ("None", None, False),
+        ("1e400", 10**400, False),
     ],
 )
 def test_values_are_compared_by_type(
     header_value: str,
-    body_value: object,
+    body_value: JsonValue,
     *,
     expected: bool,
 ) -> None:

@@ -22,9 +22,5 @@ class DiscoveryError(AuthError):
     """Failed to discover authorization server."""
 
 
-class RegistrationError(AuthError):
-    """Dynamic client registration failed."""
-
-
 class PKCEError(AuthError):
     """PKCE verification failed."""

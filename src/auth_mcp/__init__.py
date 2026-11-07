@@ -3,7 +3,6 @@ from auth_mcp.exceptions import (
     DiscoveryError,
     InsufficientScopeError,
     PKCEError,
-    RegistrationError,
     TokenValidationError,
 )
 
@@ -12,6 +11,5 @@ __all__ = (
     "DiscoveryError",
     "InsufficientScopeError",
     "PKCEError",
-    "RegistrationError",
     "TokenValidationError",
 )

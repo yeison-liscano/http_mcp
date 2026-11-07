@@ -1,5 +1,7 @@
 import logging
 import re
+from dataclasses import dataclass
+from typing import Literal, assert_never
 
 from starlette.authentication import (
     AuthCredentials,
@@ -11,7 +13,7 @@ from starlette.authentication import (
 )
 from starlette.requests import HTTPConnection
 
-from auth_mcp.resource_server.token_validator import TokenValidator
+from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +28,12 @@ _MAX_TOKEN_LENGTH = 2048
 # rejects a bare LF in a header value long before this runs, but this backend is a
 # reusable component and the token it blesses is handed to arbitrary validator code.
 _BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9\-._~+/]+=*\Z")
+
+
+@dataclass(frozen=True)
+class _CredentialsRejected:
+    reason: str
+    type: Literal["credentials_rejected"] = "credentials_rejected"
 
 
 class OAuthAuthenticationBackend(AuthenticationBackend):
@@ -52,24 +60,32 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
         self._require_authentication = require_authentication
 
     async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, BaseUser]:
-        auth_header = conn.headers.get("Authorization")
+        match await self._verify_credentials(conn.headers.get("Authorization")):
+            case TokenInfo() as token_info:
+                return AuthCredentials(list(token_info.scopes)), SimpleUser(token_info.subject)
+            case _CredentialsRejected(reason=reason):
+                if self._require_authentication:
+                    # Raising is how Starlette's backend contract rejects a request.
+                    raise AuthenticationError(reason)
+                return AuthCredentials(), UnauthenticatedUser()
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    async def _verify_credentials(
+        self,
+        auth_header: str | None,
+    ) -> TokenInfo | _CredentialsRejected:
         if not auth_header:
-            if self._require_authentication:
-                raise AuthenticationError(_AUTH_REQUIRED_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_AUTH_REQUIRED_MSG)
 
         parts = auth_header.split(" ", maxsplit=1)
         if len(parts) != 2 or parts[0].lower() != "bearer":  # noqa: PLR2004
-            if self._require_authentication:
-                raise AuthenticationError(_INVALID_SCHEME_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_INVALID_SCHEME_MSG)
 
         token = parts[1]
         if len(token) > _MAX_TOKEN_LENGTH or not _BEARER_TOKEN_PATTERN.match(token):
             LOGGER.debug("Malformed or oversized bearer token rejected")
-            if self._require_authentication:
-                raise AuthenticationError(_MALFORMED_TOKEN_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_MALFORMED_TOKEN_MSG)
 
         try:
             token_info = await self._token_validator.validate_token(token, self._resource_uri)
@@ -78,8 +94,6 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
             token_info = None
         if token_info is None:
             LOGGER.debug("Token validation failed")
-            if self._require_authentication:
-                raise AuthenticationError(_INVALID_TOKEN_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_INVALID_TOKEN_MSG)
 
-        return AuthCredentials(list(token_info.scopes)), SimpleUser(token_info.subject)
+        return token_info

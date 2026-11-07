@@ -420,3 +420,70 @@ def test_colliding_tool_schema_is_refused_by_the_transport() -> None:
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
     assert "duplicate x-mcp-header" in response.json()["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"\xff\xfe{", id="not-utf-8"),
+        pytest.param(b"[" * 200_000, id="nested-past-the-recursion-limit"),
+        pytest.param(b"1" * 5_000, id="integer-past-the-digit-limit"),
+    ],
+)
+def test_undecodable_body_is_a_parse_error(body: bytes) -> None:
+    client = MCPTestClient(DUMMY_SERVER.app)
+
+    response = client.post("/mcp", content=body, headers={"Content-Type": "application/json"})
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "error": {
+            "code": ErrorCode.INVALID_PARAMS.value,
+            "message": "Parse error: Invalid body",
+        },
+    }
+
+
+@pytest.mark.parametrize("message_id", [[1], {"nested": 1}, 1.5, None])
+def test_invalid_id_is_not_echoed_when_reporting_a_header_mismatch(message_id: object) -> None:
+    client = MCPTestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": message_id, "method": "tools/list"},
+        raw=True,
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = response.json()
+    assert "id" not in body
+    assert body["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
+@pytest.mark.parametrize("message_id", [[1], {"nested": 1}, 1.5])
+def test_invalid_id_is_not_echoed_when_reporting_an_invalid_request(message_id: object) -> None:
+    client = MCPTestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": message_id, "method": "tools/list"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = response.json()
+    assert "id" not in body
+    assert body["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+
+
+@pytest.mark.parametrize("message_id", [7, "abc"])
+def test_valid_id_is_echoed_when_reporting_a_header_mismatch(message_id: int | str) -> None:
+    client = MCPTestClient(DUMMY_SERVER.app)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": message_id, "method": "tools/list"},
+        raw=True,
+    )
+
+    assert response.json()["id"] == message_id

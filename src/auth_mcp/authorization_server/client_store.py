@@ -1,6 +1,16 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Literal
 
 from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
+
+
+@dataclass(frozen=True)
+class RegistrationRejected:
+    """The store refused a registration. `reason` is sent to the client."""
+
+    reason: str
+    type: Literal["registration_rejected"] = "registration_rejected"
 
 
 class ClientStore(ABC):
@@ -26,11 +36,8 @@ class ClientStore(ABC):
     async def register_client(
         self,
         request: ClientRegistrationRequest,
-    ) -> ClientRegistrationResponse:
-        """Register a new client and return its registration details.
-
-        Raises ``RegistrationError`` if the registration is rejected.
-        """
+    ) -> ClientRegistrationResponse | RegistrationRejected:
+        """Register a new client, or return ``RegistrationRejected`` to refuse it."""
 
     async def get_client(self, client_id: str) -> ClientRegistrationResponse | None:  # noqa: ARG002
         """Look up a previously registered client by ID.

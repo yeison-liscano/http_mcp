@@ -1,17 +1,22 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from auth_mcp.types.oauth import (
+    AuthorizationCodeTokenRequest,
     AuthorizationRequest,
+    RefreshTokenRequest,
     TokenRequest,
     TokenResponse,
 )
 
 _EXPECTED_EXPIRES_IN = 3600
+_TOKEN_REQUEST: TypeAdapter[AuthorizationCodeTokenRequest | RefreshTokenRequest] = TypeAdapter(
+    TokenRequest,
+)
 
 
 def test_token_request_authorization_code() -> None:
-    request = TokenRequest(
+    request = AuthorizationCodeTokenRequest(
         grant_type="authorization_code",
         code="abc123",
         redirect_uri="https://client.example.com/callback",
@@ -25,29 +30,53 @@ def test_token_request_authorization_code() -> None:
 
 
 def test_token_request_refresh_token() -> None:
-    request = TokenRequest(
+    request = RefreshTokenRequest(
         grant_type="refresh_token",
         refresh_token="refresh_abc",  # noqa: S106
         client_id="client_123",
     )
     assert request.grant_type == "refresh_token"
     assert request.refresh_token == "refresh_abc"  # noqa: S105
-    assert request.code is None
 
 
 def test_token_request_rejects_invalid_grant_type() -> None:
     with pytest.raises(ValidationError):
-        TokenRequest(grant_type="client_credentials")
+        _TOKEN_REQUEST.validate_python({"grant_type": "client_credentials"})
 
 
-def test_token_request_minimal() -> None:
-    request = TokenRequest(grant_type="authorization_code")
-    assert request.code is None
-    assert request.redirect_uri is None
-    assert request.code_verifier is None
-    assert request.refresh_token is None
-    assert request.client_id is None
-    assert request.resource is None
+def test_token_request_selects_the_variant_from_the_grant_type() -> None:
+    code_grant = _TOKEN_REQUEST.validate_python(
+        {"grant_type": "authorization_code", "code": "abc", "code_verifier": "xyz"},
+    )
+    refresh_grant = _TOKEN_REQUEST.validate_python(
+        {"grant_type": "refresh_token", "refresh_token": "abc"},
+    )
+    assert isinstance(code_grant, AuthorizationCodeTokenRequest)
+    assert isinstance(refresh_grant, RefreshTokenRequest)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"grant_type": "authorization_code"}, id="code-grant-without-code"),
+        pytest.param(
+            {"grant_type": "authorization_code", "code": "abc"},
+            id="code-grant-without-pkce-verifier",
+        ),
+        pytest.param(
+            {"grant_type": "authorization_code", "refresh_token": "abc"},
+            id="code-grant-with-only-a-refresh-token",
+        ),
+        pytest.param({"grant_type": "refresh_token"}, id="refresh-grant-without-token"),
+        pytest.param(
+            {"grant_type": "refresh_token", "code": "abc", "code_verifier": "xyz"},
+            id="refresh-grant-with-only-a-code",
+        ),
+    ],
+)
+def test_token_request_rejects_fields_of_the_wrong_grant(fields: dict[str, str]) -> None:
+    with pytest.raises(ValidationError):
+        _TOKEN_REQUEST.validate_python(fields)
 
 
 def test_token_response() -> None:

@@ -1,20 +1,36 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class TokenRequest(BaseModel):
-    """OAuth 2.1 token request."""
+class AuthorizationCodeTokenRequest(BaseModel):
+    """OAuth 2.1 token request exchanging an authorization code, verified with PKCE."""
 
     model_config = ConfigDict(frozen=True)
 
-    grant_type: Literal["authorization_code", "refresh_token"]
-    code: str | None = None
+    grant_type: Literal["authorization_code"]
+    code: str
+    code_verifier: str
     redirect_uri: str | None = None
-    code_verifier: str | None = None
-    refresh_token: str | None = None
     client_id: str | None = None
     resource: str | None = None
+
+
+class RefreshTokenRequest(BaseModel):
+    """OAuth 2.1 token request exchanging a refresh token."""
+
+    model_config = ConfigDict(frozen=True)
+
+    grant_type: Literal["refresh_token"]
+    refresh_token: str
+    client_id: str | None = None
+    resource: str | None = None
+
+
+TokenRequest = Annotated[
+    AuthorizationCodeTokenRequest | RefreshTokenRequest,
+    Field(discriminator="grant_type"),
+]
 
 
 class TokenResponse(BaseModel):

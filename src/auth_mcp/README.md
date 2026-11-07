@@ -553,8 +553,9 @@ are never logged. Only `"Token validation failed"` and
 
 ### OAuth Types (Request/Response Models)
 
-| Surface | Details | |---|---| | **`TokenRequest`** | `grant_type` restricted
-to `Literal["authorization_code", "refresh_token"]`. | |
+| Surface | Details | |---|---| | **`TokenRequest`** | Discriminated union on
+`grant_type`: `AuthorizationCodeTokenRequest` requires `code` and
+`code_verifier`, `RefreshTokenRequest` requires `refresh_token`. | |
 **`AuthorizationRequest`** | `code_challenge_method` restricted to
 `Literal["S256"]` (plain method forbidden per OAuth 2.1). | |
 **`ClientRegistrationRequest`** | `redirect_uris` validated as absolute URIs

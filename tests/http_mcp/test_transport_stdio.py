@@ -148,3 +148,45 @@ async def test_studio_transport_no_content() -> None:
     stdout_data, stderr_data = await process.communicate(b"   ")
     assert not stderr_data
     assert not stdout_data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "undecodable_line",
+    [
+        pytest.param(b"\xff\xfe{", id="not-utf-8"),
+        pytest.param(b"[" * 200_000, id="nested-past-the-recursion-limit"),
+        pytest.param(b"1" * 5_000, id="integer-past-the-digit-limit"),
+    ],
+)
+async def test_studio_transport_survives_an_undecodable_line(undecodable_line: bytes) -> None:
+    """One bad line reports a parse error; the server keeps serving the next request."""
+    process = await asyncio.create_subprocess_exec(
+        "python",
+        "-c",
+        "from tests.fixtures.main import run_stdio; run_stdio()",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    valid_request = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": {"_meta": request_meta()},
+        },
+    ).encode("utf-8")
+
+    stdout_data, stderr_data = await process.communicate(
+        undecodable_line + b"\n" + valid_request + b"\n",
+    )
+
+    assert not stderr_data
+    parse_error, discover_response = stdout_data.splitlines()
+    assert json.loads(parse_error) == {
+        "jsonrpc": "2.0",
+        "error": {"code": ErrorCode.INVALID_PARAMS.value, "message": "Parse error"},
+    }
+    assert json.loads(discover_response)["id"] == 1
+    await process.wait()

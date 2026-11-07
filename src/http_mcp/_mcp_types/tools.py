@@ -20,18 +20,30 @@ class ToolsListResponse(JSONRPCMessage):
     result: ToolsListResult
 
 
-class ToolsCallResult(Result):
+class ToolsCallSuccess(Result):
     content: tuple[TextContent, ...]
-    is_error: bool = Field(serialization_alias="isError", alias_priority=1)
-    structured_content: dict[str, Any] | None = Field(
+    is_error: Literal[False] = Field(
+        serialization_alias="isError",
+        alias_priority=1,
+        default=False,
+    )
+    structured_content: dict[str, Any] = Field(
         serialization_alias="structuredContent",
-        default=None,
         alias_priority=1,
     )
 
 
+class ToolsCallFailure(Result):
+    content: tuple[TextContent, ...]
+    is_error: Literal[True] = Field(
+        serialization_alias="isError",
+        alias_priority=1,
+        default=True,
+    )
+
+
 class ToolsCallResponse(JSONRPCMessage):
-    result: ToolsCallResult
+    result: ToolsCallSuccess | ToolsCallFailure
 
 
 class ToolsCallRequestParams(BaseModel):

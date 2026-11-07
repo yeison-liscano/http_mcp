@@ -23,12 +23,13 @@ def main() -> int:
         LOGGER.exception("✗ Failed to import types")
         return 1
 
-    # Test 3: Import exceptions
+    # Test 3: Import exceptions and failure values
     try:
         from http_mcp.exceptions import (  # noqa: PLC0415, F401
-            PromptNotFoundError,
-            ToolNotFoundError,
+            PromptInvocationError,
+            ToolInvocationError,
         )
+        from http_mcp.failures import PromptNotFound, ToolNotFound  # noqa: PLC0415, F401
     except ImportError:
         LOGGER.exception("✗ Failed to import exceptions")
         return 1

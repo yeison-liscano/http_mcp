@@ -4,11 +4,10 @@ from http import HTTPStatus
 import pytest
 from starlette.testclient import TestClient
 
-from auth_mcp.authorization_server.client_store import ClientStore
+from auth_mcp.authorization_server.client_store import ClientStore, RegistrationRejected
 from auth_mcp.authorization_server.registration_endpoint import (
     DynamicClientRegistrationEndpoint,
 )
-from auth_mcp.exceptions import RegistrationError
 from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
 
 
@@ -30,12 +29,12 @@ class MockClientStore(ClientStore):
         )
 
 
-class FailingClientStore(ClientStore):
+class RejectingClientStore(ClientStore):
     async def register_client(
         self,
         request: ClientRegistrationRequest,  # noqa: ARG002
-    ) -> ClientRegistrationResponse:
-        raise RegistrationError("Policy violation")  # noqa: TRY003
+    ) -> RegistrationRejected:
+        return RegistrationRejected("Policy violation")
 
 
 class CrashingClientStore(ClientStore):
@@ -149,7 +148,7 @@ def test_missing_redirect_uris_returns_400() -> None:
 
 
 def test_store_raises_registration_error_returns_400() -> None:
-    client = _create_client(FailingClientStore())
+    client = _create_client(RejectingClientStore())
     response = client.post("/", json=_valid_body())
     assert response.status_code == HTTPStatus.BAD_REQUEST
     data = response.json()
