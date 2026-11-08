@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Literal, assert_never
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt, StrictStr
 from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
@@ -80,6 +80,25 @@ def _with_ok_status(response: JSONRPCMessage | InsufficientScope) -> Dispatched 
             return response
         case JSONRPCMessage():
             return Dispatched(response, HTTPStatus.OK)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+class _RequestId(BaseModel):
+    id: StrictInt | StrictStr | None = None
+
+
+def request_id(raw_message: object) -> int | str | None:
+    """Return the id to echo in an error, or None when it is not a valid JSON-RPC id.
+
+    An error about a request that failed validation should still carry that request's
+    id when it has a usable one, or the client cannot tell which request it answers.
+    """
+    match parse_model(_RequestId, raw_message):
+        case Parsed(value=parsed):
+            return parsed.id
+        case InvalidModel():
+            return None
         case _ as unreachable:
             assert_never(unreachable)
 

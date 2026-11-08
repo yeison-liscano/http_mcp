@@ -1,16 +1,22 @@
 import re
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
-_CRLF_CHARS = re.compile(r"[\r\n]")
+# Everything outside visible ASCII and space: CR, LF, NUL and the other C0 controls,
+# DEL, C1 controls such as NEL, and non-ASCII characters such as U+2028. RFC 6750
+# limits `error`, `error_description` and `scope` to visible ASCII anyway.
+_UNSAFE_CHARS = re.compile(r"[^\x20-\x7e]")
+# RFC 9110 section 5.6.2 token, which is what an auth-scheme is.
+_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 
 
 def _sanitize_header_value(value: str) -> str:
-    r"""Escape characters that are unsafe inside RFC 7230 quoted-string values.
+    r"""Make a value safe inside an RFC 9110 quoted-string.
 
-    Strips CR/LF, then escapes backslash with \\ and double-quote with \".
+    Strips every character outside visible ASCII and space, then escapes backslash
+    with \\ and double-quote with \".
     """
-    value = _CRLF_CHARS.sub("", value)
+    value = _UNSAFE_CHARS.sub("", value)
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
@@ -35,6 +41,16 @@ class WWWAuthenticateChallenge(BaseModel):
     scope: str | None = None
     error: str | None = None
     error_description: str | None = None
+
+    @field_validator("scheme")
+    @classmethod
+    def _validate_scheme(cls, v: str) -> str:
+        # The scheme is emitted unquoted, so it cannot be sanitized like the parameters:
+        # anything outside the token characters is refused instead.
+        if not _TOKEN.fullmatch(v):
+            msg = "scheme must be an RFC 9110 token"
+            raise ValueError(msg)
+        return v
 
     def to_header_value(self) -> str:
         """Build the WWW-Authenticate header string.

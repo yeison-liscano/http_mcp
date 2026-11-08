@@ -44,6 +44,20 @@ def test_malformed_sentinel_payloads_are_rejected(value: str) -> None:
     assert decode_header_value(value) == MalformedHeaderValue()
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        # `dXM=` is the canonical encoding of "us"; `dXN=` sets the unused low bits.
+        "=?base64?dXN=?=",
+        # Same bytes, with the padding the canonical form needs left off.
+        "=?base64?dXM?=",
+    ],
+)
+def test_non_canonical_sentinel_payloads_are_rejected(value: str) -> None:
+    """One value must have one spelling, or a proxy keyed on the header sees several."""
+    assert decode_header_value(value) == MalformedHeaderValue()
+
+
 def test_a_value_too_short_to_hold_both_markers_is_not_a_sentinel() -> None:
     """`=?base64?=` overlaps its own prefix and suffix; it is a literal, not an envelope."""
     assert decode_header_value("=?base64?=") == "=?base64?="

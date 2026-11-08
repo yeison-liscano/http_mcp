@@ -1,9 +1,10 @@
 import logging
+import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Literal, assert_never
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel
 from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
@@ -31,6 +32,7 @@ from http_mcp._transport_base import (
     PROTOCOL_VERSION_HEADER,
     BaseTransport,
     Dispatched,
+    request_id,
     request_meta,
 )
 from http_mcp._transport_types import ErrorResponseInfo
@@ -46,6 +48,16 @@ _SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
 
 _METHOD_HEADER = "mcp-method"
 _NAME_HEADER = "mcp-name"
+# Every header the body is mirrored into, with the spelling used in error messages.
+_MIRRORED_HEADERS: dict[str, str] = {
+    PROTOCOL_VERSION_HEADER: "MCP-Protocol-Version",
+    _METHOD_HEADER: "Mcp-Method",
+    _NAME_HEADER: "Mcp-Name",
+}
+# Hosts an `Origin` may name when no allowlist is configured.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# RFC 6749 section 3.3 scope-token characters; anything else is left out of the challenge.
+_SCOPE_TOKEN = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]+")
 # Methods whose subject is mirrored into `Mcp-Name`.
 _NAMED_METHODS = ("tools/call", "prompts/get")
 _MAX_ECHOED_VALUE = 100
@@ -64,24 +76,40 @@ class HeaderMismatch:
     type: Literal["header_mismatch"] = "header_mismatch"
 
 
-class _RequestId(BaseModel):
-    id: int | str | None = None
-
-
-def _request_id(raw_message: dict) -> int | str | None:
-    """Return the id to echo in an error, or None when it is not a valid JSON-RPC id."""
-    match parse_model(_RequestId, raw_message):
-        case Parsed(value=request_id):
-            return request_id.id
-        case InvalidModel():
-            return None
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
 def _echo(value: object) -> str:
     """Render an untrusted header or body value for an error message."""
     return repr(str(value)[:_MAX_ECHOED_VALUE])
+
+
+def _find_repeated_header(headers: Headers, names: dict[str, str]) -> HeaderMismatch | None:
+    """Refuse a mirrored header that appears more than once.
+
+    `Headers.get` returns the first field line only, while intermediaries commonly join
+    repeated lines with ", " (RFC 9110 section 5.3) or keep the last one. A request
+    whose first copy matches the body and whose second copy does not would then be
+    routed on one value and served on another, which is the desynchronisation the
+    mirroring check exists to prevent.
+    """
+    for name, label in names.items():
+        if len(headers.getlist(name)) > 1:
+            return HeaderMismatch(f"{label} header must not be repeated")
+    return None
+
+
+def _is_loopback_origin(origin: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and parsed.hostname in _LOOPBACK_HOSTS
+
+
+def _insufficient_scope_challenge(required_scopes: tuple[str, ...]) -> bytes:
+    """Build the RFC 6750 challenge that lets a client step up to the scopes it lacks."""
+    scope = " ".join(s for s in required_scopes if _SCOPE_TOKEN.fullmatch(s))
+    if not scope:
+        return b'Bearer error="insufficient_scope"'
+    return f'Bearer error="insufficient_scope", scope="{scope}"'.encode("ascii")
 
 
 def _validate_version_header(headers: Headers, params: dict[str, Any]) -> HeaderMismatch | None:
@@ -215,7 +243,12 @@ class HTTPTransport(BaseTransport):
         await self._handle_post_request(request, send)
 
     def _is_allowed_origin(self, origin: str | None) -> bool:
-        """Guard against DNS rebinding; disabled while no allowlist is configured.
+        """Guard against DNS rebinding.
+
+        Without an allowlist only loopback origins are accepted. A page that rebinds its
+        own hostname to 127.0.0.1 still sends its own origin, so refusing every origin
+        but loopback ones protects a local server that was never configured; a server
+        meant for browsers elsewhere names its origins in ``allowed_origins``.
 
         A missing ``Origin`` is allowed by default: browsers always send one on a POST,
         so absence means a non-browser client, which the rebinding threat model does not
@@ -223,7 +256,7 @@ class HTTPTransport(BaseTransport):
         to close that gap and make the allowlist mandatory rather than advisory.
         """
         if not self._server.allowed_origins:
-            return True
+            return origin is None or _is_loopback_origin(origin)
         if origin is None:
             return not self._server.require_origin
         return origin in self._server.allowed_origins
@@ -237,7 +270,13 @@ class HTTPTransport(BaseTransport):
         than what the server allows. Returns None when the limit is exceeded.
         """
         declared = request.headers.get("content-length")
-        if declared is not None and declared.isdigit() and int(declared) > MAXIMUM_MESSAGE_SIZE:
+        # `isdigit` alone accepts digits such as "²" that `int` then refuses to parse.
+        if (
+            declared is not None
+            and declared.isascii()
+            and declared.isdigit()
+            and int(declared) > MAXIMUM_MESSAGE_SIZE
+        ):
             return None
 
         chunks: list[bytes] = []
@@ -269,7 +308,7 @@ class HTTPTransport(BaseTransport):
                 await self._send_error_response(
                     send,
                     ErrorResponseInfo(
-                        protocol_code=ErrorCode.INVALID_PARAMS,
+                        protocol_code=ErrorCode.PARSE_ERROR,
                         http_status_code=HTTPStatus.BAD_REQUEST,
                         message="Parse error: Invalid body",
                     ),
@@ -326,7 +365,7 @@ class HTTPTransport(BaseTransport):
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
-                    message_id=_request_id(raw_message),
+                    message_id=request_id(raw_message),
                     protocol_code=ErrorCode.HEADER_MISMATCH,
                     http_status_code=HTTPStatus.BAD_REQUEST,
                     message=f"Header mismatch: {mismatch.detail}",
@@ -359,7 +398,7 @@ class HTTPTransport(BaseTransport):
                 await self._send_error_response(
                     send,
                     ErrorResponseInfo(
-                        message_id=_request_id(raw_message),
+                        message_id=request_id(raw_message),
                         protocol_code=(
                             ErrorCode.METHOD_NOT_FOUND
                             if is_invalid_method
@@ -399,9 +438,10 @@ class HTTPTransport(BaseTransport):
         raw_params = raw_message.get("params")
         params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
 
-        mismatch = _validate_version_header(headers, params) or _validate_method_header(
-            headers,
-            method,
+        mismatch = (
+            _find_repeated_header(headers, _MIRRORED_HEADERS)
+            or _validate_version_header(headers, params)
+            or _validate_method_header(headers, method)
         )
         if mismatch is not None:
             return mismatch
@@ -453,8 +493,12 @@ class HTTPTransport(BaseTransport):
         arguments: dict[str, Any] = raw_arguments if isinstance(raw_arguments, dict) else {}
 
         for header_name, path in annotated.items():
-            mismatch = _validate_param_header(
-                headers.get(f"{HEADER_PARAM_PREFIX}{header_name}"),
+            field_name = f"{HEADER_PARAM_PREFIX}{header_name}"
+            mismatch = _find_repeated_header(
+                headers,
+                {field_name: f"Mcp-Param-{header_name}"},
+            ) or _validate_param_header(
+                headers.get(field_name),
                 header_name,
                 extract_argument(arguments, path),
             )
@@ -488,8 +532,8 @@ class HTTPTransport(BaseTransport):
             return
 
         match outcome:
-            case InsufficientScope():
-                await self._send_forbidden_response(send)
+            case InsufficientScope(required_scopes=required_scopes):
+                await self._send_forbidden_response(send, required_scopes)
             case Dispatched(response=response, status=status_code):
                 await send(
                     {
@@ -514,13 +558,20 @@ class HTTPTransport(BaseTransport):
             case _ as unreachable:
                 assert_never(unreachable)
 
-    async def _send_forbidden_response(self, send: Send) -> None:
+    async def _send_forbidden_response(self, send: Send, required_scopes: tuple[str, ...]) -> None:
+        """Answer 403 with a challenge naming the scopes the call needs.
+
+        The scope list is what lets an OAuth client request a token with more scopes
+        (step-up authorization). It also tells a caller holding a token which scopes a
+        tool it cannot use requires; that is the trade-off step-up makes.
+        """
         await send(
             {
                 "type": "http.response.start",
                 "status": HTTPStatus.FORBIDDEN.value,
                 "headers": [
                     (b"content-type", b"application/json"),
+                    (b"www-authenticate", _insufficient_scope_challenge(required_scopes)),
                     *_SECURITY_HEADERS,
                 ],
             },

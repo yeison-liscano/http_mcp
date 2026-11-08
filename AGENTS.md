@@ -122,8 +122,8 @@ OAuth 2.1 authorization for MCP servers (Phase 1: Resource Server).
     for `/.well-known/oauth-protected-resource`.
   - `middleware.py` — `AuthErrorMiddleware` (WWW-Authenticate on 401/403),
     `build_www_authenticate_header()`.
-  - `integration.py` — `ProtectedMCPAppConfig`, `CORSConfig`,
-    `create_protected_mcp_app()`.
+  - `integration.py` — `ProtectedMCPAppConfig`, `create_protected_mcp_app()`.
+    CORS is configured through `ProtectedMCPAppConfig.middlewares`.
 
 - **`authorization_server/`** — Authorization Server components (Phase 2):
   - `client_store.py` — Abstract `ClientStore` for Dynamic Client Registration

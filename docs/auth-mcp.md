@@ -85,8 +85,12 @@ endpoints and capabilities. Key fields:
 ### `registration.py`
 
 - **`ClientRegistrationRequest`** (RFC 7591) — `redirect_uris` (validated: HTTPS
-  required, HTTP only for `localhost`/`127.0.0.1`/`::1`), `client_name`,
-  `grant_types`, `response_types`, `token_endpoint_auth_method`.
+  required, HTTP only for `localhost`/`127.0.0.1`/`::1`; no fragment, user
+  information, backslash, whitespace, or control characters), `client_name` (at
+  most 256 characters, no control or formatting characters), `grant_types`
+  (`authorization_code`, `refresh_token`), `response_types` (`code`), and
+  `token_endpoint_auth_method` (`none`, `client_secret_basic`,
+  `client_secret_post`, `client_secret_jwt`, `private_key_jwt`).
 - **`ClientRegistrationResponse`** — `client_id` (required), optional
   `client_secret`, `client_id_issued_at`, `client_secret_expires_at`, plus the
   echo-back fields from the request.
@@ -135,6 +139,11 @@ When `require_authentication=True` (default), missing or invalid tokens cause a
 401 response. When `False`, unauthenticated requests pass through with empty
 credentials — tools/prompts without scope requirements remain accessible.
 
+Whatever the validator checked, the backend also refuses a token whose
+`TokenInfo.expires_at` has passed, or whose `TokenInfo.audience` is set and
+names a resource other than the protected one (scheme and host compare
+case-insensitively; a trailing slash is not significant).
+
 ### ProtectedResourceMetadataEndpoint
 
 ASGI handler serving `/.well-known/oauth-protected-resource` (RFC 9728). Returns
@@ -159,13 +168,16 @@ from auth_mcp.resource_server import (
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
+from auth_mcp.types import ProtectedResourceMetadata
 
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=MyTokenValidator(),
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
-    scopes_supported=("read", "write"),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+        scopes_supported=("read", "write"),
+    ),
 )
 app = create_protected_mcp_app(config)
 ```
@@ -176,8 +188,9 @@ This gives you:
 - Bearer token validation on all requests
 - `/.well-known/oauth-protected-resource` metadata endpoint
 - Security headers and `WWW-Authenticate` on 401/403
-- Optional CORS via
-  `cors=CORSConfig(allow_origins=("https://client.example.com",))`
+- Optional custom middleware, such as Starlette's `CORSMiddleware`, via
+  `middlewares=(...)` (see the CORS example in the
+  [auth_mcp README](../src/auth_mcp/README.md#browser-based-mcp-client-with-cors))
 
 ______________________________________________________________________
 
@@ -233,8 +246,10 @@ as the resource server metadata endpoint. GET only; other methods return 405.
 ASGI handler for `/register` implementing RFC 7591:
 
 - **POST only** — other methods return 405.
-- **Validates** `Content-Type: application/json`, body size (64KB max), JSON
-  parsing, and Pydantic validation of `ClientRegistrationRequest`.
+- **Validates** the media type (exactly `application/json`, parameters allowed),
+  body size (64KB max, enforced while reading: an oversized `Content-Length` or
+  a body that outgrows the cap gets 413 without being buffered), JSON parsing,
+  and Pydantic validation of `ClientRegistrationRequest`.
 - **Delegates** to `ClientStore.register_client()`.
 - **Returns** 201 Created with `ClientRegistrationResponse` JSON on success.
 - **Error responses** use `OAuthErrorResponse` with
@@ -250,6 +265,7 @@ Both authorization server components are optional additions to
 ```python
 from auth_mcp.authorization_server import ClientStore
 from auth_mcp.resource_server import ProtectedMCPAppConfig, create_protected_mcp_app
+from auth_mcp.types import ProtectedResourceMetadata
 from auth_mcp.types.metadata import AuthorizationServerMetadata
 
 as_metadata = AuthorizationServerMetadata(
@@ -262,8 +278,10 @@ as_metadata = AuthorizationServerMetadata(
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
     token_validator=my_validator,
-    resource_uri="https://mcp.example.com",
-    authorization_servers=("https://auth.example.com",),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=("https://auth.example.com",),
+    ),
     authorization_server_metadata=as_metadata,  # Enables AS metadata endpoint
     client_store=MyClientStore(),                # Enables /register endpoint
 )

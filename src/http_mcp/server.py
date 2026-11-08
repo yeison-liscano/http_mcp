@@ -1,3 +1,6 @@
+from typing import get_args
+
+from pydantic import BaseModel
 from starlette.authentication import has_required_scope
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
@@ -28,20 +31,62 @@ def _check_scope(request: Request, scopes: tuple[str, ...]) -> bool:
     return has_required_scope(request, scopes)
 
 
-def _ensure_header_params_are_unique(tools: tuple[Tool, ...]) -> None:
-    """Reject a tool whose schema declares one `x-mcp-header` name twice.
+def _models_in(annotation: object) -> tuple[type[BaseModel], ...]:
+    """Return the pydantic models an annotation validates into, such as both of `A | B`."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return (annotation,)
+    return tuple(model for arg in get_args(annotation) for model in _models_in(arg))
 
-    `collect_header_params` raises rather than letting the second annotation overwrite
-    the first, which would leave a property unchecked while the server still reported
-    it as validated. Running it here turns that into a construction-time error instead
-    of a per-request surprise.
+
+def _is_read_by_name_only(model: type[BaseModel], path: tuple[str, ...]) -> bool:
+    """Report whether validation takes each step of `path` from that key and no other.
+
+    The header check reads the argument at the path the schema advertises. If a field on
+    that path also answers to an alias, a request can put one value under the advertised
+    key, for the check to compare, and another under the alias, for the tool to receive.
+    """
+    key, *rest = path
+    field = model.model_fields.get(key)
+    if field is None or field.validation_alias not in (None, key):
+        return False
+    return (
+        all(_is_read_by_name_only(nested, tuple(rest)) for nested in _models_in(field.annotation))
+        if rest
+        else True
+    )
+
+
+def _ensure_header_params_are_checkable(tools: tuple[Tool, ...]) -> None:
+    """Reject a tool whose `x-mcp-header` annotations the transport cannot enforce.
+
+    Two cases are refused, both at construction rather than per request:
+
+    - One header name declared twice. `collect_header_params` raises rather than letting
+      the second annotation overwrite the first, which would leave a property unchecked
+      while the server still reported it as validated.
+    - An annotated field that the input model also accepts under an alias. The check
+      compares the header with the value under the field name while the tool receives
+      the value under the alias, so the two could differ.
     """
     for _tool in tools:
         try:
-            collect_header_params(_tool.input_schema)
+            annotated = collect_header_params(_tool.input_schema)
         except DuplicateHeaderParamError as e:
             msg = f"Tool {_tool.name!r} has an invalid input schema: {e}"
             raise ValueError(msg) from e
+        inputs = _tool.inputs
+        if not (isinstance(inputs, type) and issubclass(inputs, BaseModel)):
+            continue
+        aliased = sorted(
+            ".".join(path) for path in annotated.values() if not _is_read_by_name_only(inputs, path)
+        )
+        if aliased:
+            msg = (
+                f"Tool {_tool.name!r} mirrors {aliased} into Mcp-Param headers, but its "
+                "input model also accepts those arguments under an alias. Remove the alias "
+                "(alias, validation_alias or alias_generator) from the annotated fields."
+            )
+            raise ValueError(msg)
 
 
 def _ensure_unique_names(feature_type: str, names: tuple[str, ...]) -> None:
@@ -67,9 +112,10 @@ class MCPServer(ServerInterface):
         cache_scope: Whether shared caches may serve those results across
             authorization contexts. Defaults to "private" when any tool or prompt is
             scope-restricted (the list then varies by caller) and "public" otherwise.
-        allowed_origins: Origins the HTTP transport accepts. Empty (the default)
-            disables the check. Set this when the server is reachable from a browser:
-            it is the defence against DNS rebinding.
+        allowed_origins: Origins the HTTP transport accepts, the defence against DNS
+            rebinding. Empty (the default) accepts only loopback origins
+            (`localhost`, `127.0.0.1`, `[::1]`), which suits a local server; set it
+            when browsers on any other origin should reach the server.
         require_origin: Whether a request that sends no `Origin` header at all is
             refused when `allowed_origins` is set. Off by default, because browsers
             always send `Origin` on a POST and non-browser clients generally do not.
@@ -93,7 +139,7 @@ class MCPServer(ServerInterface):
     ) -> None:
         _ensure_unique_names("tool", tuple(_tool.name for _tool in tools))
         _ensure_unique_names("prompt", tuple(_prompt.name for _prompt in prompts))
-        _ensure_header_params_are_unique(tools)
+        _ensure_header_params_are_checkable(tools)
         if cache_ttl_ms < 0:
             msg = "cache_ttl_ms must be greater than or equal to 0"
             raise ValueError(msg)

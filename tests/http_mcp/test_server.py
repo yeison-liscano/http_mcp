@@ -1,7 +1,8 @@
 from http import HTTPStatus
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 from http_mcp._mcp_types.meta import META_SERVER_INFO
 from http_mcp._mcp_types.versions import LATEST_PROTOCOL_VERSION
@@ -224,6 +225,10 @@ def test_server_call_tool_without_required_scope() -> None:
         )
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert response.json() == {"error": "insufficient_scope"}
+        # RFC 6750 section 3.1: the challenge names the scope, which drives step-up.
+        assert response.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="private"'
+        )
 
         assert client.app_state["context"].called_tools == []
 
@@ -434,3 +439,107 @@ def test_duplicate_header_annotations_fail_at_construction() -> None:
             "1.0.0",
             tools=(Tool(func=colliding_tool, inputs=_Colliding, output=_ScopedOutput),),
         )
+
+
+# ---------------------------------------------------------------------------
+# Header-mirrored arguments must be read under one key only
+# ---------------------------------------------------------------------------
+
+
+class _CamelInputs(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    tenant_id: str = Field(json_schema_extra={"x-mcp-header": "Tenant"})
+
+
+class _AliasOnlyInputs(BaseModel):
+    tenant: str = Field(alias="tenantName", json_schema_extra={"x-mcp-header": "Tenant"})
+
+
+class _AliasChoicesInputs(BaseModel):
+    tenant: str = Field(
+        validation_alias=AliasChoices("tenant", "tid"),
+        json_schema_extra={"x-mcp-header": "Tenant"},
+    )
+
+
+class _UnaliasedHeaderInputs(BaseModel):
+    """Aliases elsewhere in the model are fine; only mirrored arguments matter."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    tenant: str = Field(alias="tenant", json_schema_extra={"x-mcp-header": "Tenant"})
+    page_size: int = Field(default=10, alias="pageSize")
+
+
+def _header_tool(_args: Arguments[BaseModel]) -> _ScopedOutput:
+    """Act on a tenant."""
+    return _ScopedOutput(ok=True)
+
+
+@pytest.mark.parametrize("inputs", [_CamelInputs, _AliasOnlyInputs, _AliasChoicesInputs])
+def test_aliased_header_argument_fails_at_construction(inputs: type[BaseModel]) -> None:
+    """The header check reads the field name; the alias would let the tool see another value.
+
+    With `tenantId` accepted, `{"tenant_id": "acme", "tenantId": "victim"}` plus
+    `Mcp-Param-Tenant: acme` passed the check while the tool acted on "victim".
+    """
+    with pytest.raises(ValueError, match=r"accepts those arguments under an alias"):
+        MCPServer(
+            "test",
+            "1.0.0",
+            tools=(Tool(func=_header_tool, inputs=inputs, output=_ScopedOutput),),
+        )
+
+
+def test_alias_equal_to_the_field_name_and_aliases_on_other_fields_are_accepted() -> None:
+    server = MCPServer(
+        "test",
+        "1.0.0",
+        tools=(Tool(func=_header_tool, inputs=_UnaliasedHeaderInputs, output=_ScopedOutput),),
+    )
+
+    assert server.capabilities.tools is not None
+
+
+class _AliasedInner(BaseModel):
+    tenant: str = Field(alias="tenantName")
+
+
+class _PlainInner(BaseModel):
+    tenant: str
+
+
+class _NestedAliasInputs(BaseModel):
+    """Inline `properties` make the nested argument reachable for the header walk."""
+
+    scope: _AliasedInner | None = Field(
+        json_schema_extra={
+            "properties": {"tenant": {"type": "string", "x-mcp-header": "Tenant"}},
+        },
+    )
+
+
+class _NestedPlainInputs(BaseModel):
+    scope: _PlainInner | None = Field(
+        json_schema_extra={
+            "properties": {"tenant": {"type": "string", "x-mcp-header": "Tenant"}},
+        },
+    )
+
+
+def test_alias_on_a_nested_header_argument_fails_at_construction() -> None:
+    with pytest.raises(ValueError, match=r"\['scope.tenant'\]"):
+        MCPServer(
+            "test",
+            "1.0.0",
+            tools=(Tool(func=_header_tool, inputs=_NestedAliasInputs, output=_ScopedOutput),),
+        )
+
+
+def test_unaliased_nested_header_argument_is_accepted() -> None:
+    server = MCPServer(
+        "test",
+        "1.0.0",
+        tools=(Tool(func=_header_tool, inputs=_NestedPlainInputs, output=_ScopedOutput),),
+    )
+
+    assert server.capabilities.tools is not None

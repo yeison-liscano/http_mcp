@@ -76,7 +76,7 @@ def test_parse_error() -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.PARSE_ERROR.value,
             "message": "Parse error: Invalid body",
         },
     }
@@ -288,6 +288,48 @@ async def test_oversized_content_length_is_refused_before_reading() -> None:
     assert read["calls"] == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("declared", [b"\xb2", b"\xd9\xa1"])
+async def test_non_ascii_digits_in_content_length_do_not_crash(declared: bytes) -> None:
+    """`"²".isdigit()` is true but `int("²")` raises, which escaped the ASGI app."""
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":'
+        b'{"io.modelcontextprotocol/protocolVersion":"' + LATEST_PROTOCOL_VERSION.encode() + b'",'
+        b'"io.modelcontextprotocol/clientCapabilities":{}}}}'
+    )
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await DUMMY_SERVER.app(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "root_path": "",
+            "scheme": "http",
+            "http_version": "1.1",
+            "query_string": b"",
+            "client": ("1.2.3.4", 1),
+            "server": ("testserver", 80),
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", declared),
+                (b"mcp-protocol-version", LATEST_PROTOCOL_VERSION.encode()),
+                (b"mcp-method", b"tools/list"),
+            ],
+        },
+        receive,
+        send,
+    )
+
+    assert sent[0]["status"] == HTTPStatus.OK.value
+
+
 # ---------------------------------------------------------------------------
 # Origin allowlist
 # ---------------------------------------------------------------------------
@@ -439,7 +481,7 @@ def test_undecodable_body_is_a_parse_error(body: bytes) -> None:
     assert response.json() == {
         "jsonrpc": "2.0",
         "error": {
-            "code": ErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.PARSE_ERROR.value,
             "message": "Parse error: Invalid body",
         },
     }

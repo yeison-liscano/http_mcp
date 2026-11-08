@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from pydantic import BaseModel, Field
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
@@ -636,7 +637,7 @@ def test_tools_list_pagination_returns_next_cursor() -> None:
     assert data2["result"].get("nextCursor") is None
 
 
-def test_get_state_key_missing_key_raises_server_error() -> None:
+def test_get_state_key_missing_key_raises_server_error(caplog: pytest.LogCaptureFixture) -> None:
     def tool_accessing_missing_key(args: Arguments[NoArguments]) -> SimpleOutput:
         """Access a missing state key."""
         args.get_state_key("nonexistent_key", object)
@@ -667,7 +668,9 @@ def test_get_state_key_missing_key_raises_server_error() -> None:
         assert response.status_code == HTTPStatus.OK
         data = response.json()
         assert data["result"]["isError"] is True
-        assert "nonexistent_key" in data["result"]["content"][0]["text"]
+        # The key name and wiring advice are for the developer's log, not the client.
+        assert data["result"]["content"][0]["text"] == "Internal server error"
+        assert "nonexistent_key" in caplog.text
 
 
 def test_tool_without_args_reraises_server_error() -> None:

@@ -138,23 +138,29 @@ The following steps describe what happens when a client sends `POST /mcp`:
      validator → 401.
    - Calls `TokenValidator.validate_token(token, resource_uri)`. A `None` return
      means the token is invalid or expired → 401.
+   - Refuses a returned `TokenInfo` whose `expires_at` has passed, or whose
+     `audience` is set and names another resource → 401.
    - On success, sets `request.user` (`SimpleUser(subject)`) and `request.auth`
      (`AuthCredentials(scopes)`) for downstream handlers.
 
 1. **`MCPServer`** handles the JSON-RPC request. It reads `request.auth` (via
    Starlette's `has_required_scope()`) to decide which tools and prompts the
-   caller is allowed to see and invoke. A tool whose `scopes` are not a subset
-   of the caller's granted scopes returns 403.
+   caller is allowed to see and invoke. A caller holding none of a tool's
+   `scopes` gets 403, with a challenge naming the scopes the tool needs.
 
 1. **`AuthErrorMiddleware`** intercepts the outgoing response:
 
    - Appends `Strict-Transport-Security`, `X-Content-Type-Options`, and
      `Cache-Control: no-store` to every response.
-   - On 401, adds
-     `WWW-Authenticate: Bearer realm="…", resource_metadata="…/.well-known/oauth-protected-resource", error="invalid_token"`.
-   - On 403, adds
-     `WWW-Authenticate: Bearer realm="…", resource_metadata="…/.well-known/oauth-protected-resource"`
-     (no error code, following RFC 6750 §3.1).
+   - On 401, sets
+     `WWW-Authenticate: Bearer realm="…", resource_metadata="…/.well-known/oauth-protected-resource", error="invalid_token"`
+     when the request presented a Bearer token. A request with no credentials
+     (or another scheme) gets the challenge without `error`, following RFC 6750
+     §3.1.
+   - On 403, sets
+     `WWW-Authenticate: Bearer realm="…", resource_metadata="…", scope="…", error="insufficient_scope"`,
+     keeping the `scope` the MCP transport named so the client can step up to a
+     token with those scopes.
 
 1. Clients that receive a 401 follow the `resource_metadata` URL to
    `GET /.well-known/oauth-protected-resource`, discover the authorization
@@ -193,9 +199,12 @@ class IntrospectionTokenValidator(TokenValidator):
 
 - `subject` (str): User identifier
 - `scopes` (tuple[str, ...]): Granted scopes (default: empty)
-- `expires_at` (int | None): Token expiration timestamp
+- `expires_at` (int | None): Token expiration timestamp, in seconds since the
+  epoch. The backend refuses a token once it has passed.
 - `client_id` (str | None): OAuth client identifier
-- `audience` (str | None): Intended audience (resource URI)
+- `audience` (str | None): Intended audience (resource URI). When set, the
+  backend refuses the token unless it names the protected resource; leave it
+  unset when the token carries no comparable audience.
 
 ### Authentication Backend
 
@@ -309,6 +318,9 @@ and authorization server load.
 
 **Validate the audience.** Check that the token's `audience` matches your
 `resource_uri` to prevent tokens issued for other services from being accepted.
+`OAuthAuthenticationBackend` also refuses a `TokenInfo` whose `audience` names
+another resource, but only a validator can check an audience it does not
+report.
 
 ```python
 async def validate_token(
@@ -468,13 +480,32 @@ and `list_models`. Authenticated users with the right scopes also see
 ### Browser-Based MCP Client with CORS
 
 Enable cross-origin access for a browser-based client using the `middlewares`
-parameter with Starlette's `CORSMiddleware`:
+parameter with Starlette's `CORSMiddleware`. Two things besides the CORS
+middleware are needed:
+
+- The MCP server must accept the browser's origin. Without `allowed_origins` it
+  accepts loopback origins only, as its DNS-rebinding defence.
+- The preflight must allow the request-metadata headers every MCP request
+  carries (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`), plus one
+  `Mcp-Param-<Name>` for each `x-mcp-header` annotation your tools declare.
+  CORS has no prefix wildcard, so list them. `WWW-Authenticate` must be exposed
+  for the client to read the discovery and step-up challenges.
 
 ```python
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from auth_mcp.resource_server import ProtectedMCPAppConfig
 from auth_mcp.types import ProtectedResourceMetadata
+from http_mcp.server import MCPServer
+
+BROWSER_ORIGINS = ("https://app.example.com", "https://staging.example.com")
+
+mcp_server = MCPServer(
+    name="my-server",
+    version="1.0.0",
+    tools=my_tools,
+    allowed_origins=BROWSER_ORIGINS,
+)
 
 config = ProtectedMCPAppConfig(
     mcp_server=mcp_server,
@@ -486,12 +517,17 @@ config = ProtectedMCPAppConfig(
     middlewares=(
         Middleware(
             CORSMiddleware,
-            allow_origins=[
-                "https://app.example.com",
-                "https://staging.example.com",
-            ],
+            allow_origins=list(BROWSER_ORIGINS),
             allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "MCP-Protocol-Version",
+                "Mcp-Method",
+                "Mcp-Name",
+                # One per x-mcp-header annotation, e.g. "Mcp-Param-Region".
+            ],
+            expose_headers=["WWW-Authenticate"],
             allow_credentials=True,
         ),
     ),
@@ -520,10 +556,10 @@ messages. Pydantic validation errors sanitized before inclusion in responses. |
 
 ### `GET /.well-known/oauth-protected-resource` -- Discovery Endpoint
 
-| Surface | Details | |---|---| | **Authentication** | Subject to the same auth
-middleware as `/mcp`. When `require_authentication=True`, this endpoint requires
-a valid token. Set to `False` if clients need to discover the authorization
-server before authenticating. | | **Input validation** | Only `GET` allowed;
+| Surface | Details | |---|---| | **Authentication** | None. The route is outside
+the auth middleware that wraps `/mcp`, because RFC 9728 discovery is how an
+unauthenticated client finds the authorization server. It serves public
+metadata only. | | **Input validation** | Only `GET` allowed;
 other methods return `405 Method Not Allowed`. | | **Output** | Serialized once
 at startup from a frozen `ProtectedResourceMetadata` model. URI fields validated
 as HTTP/HTTPS URLs via Pydantic's `AnyHttpUrl`. | | **Response headers** | Same
@@ -533,12 +569,16 @@ security headers as `/mcp`. |
 
 | Surface | Details | |---|---| | **Header injection** | All parameter values
 (`realm`, `resource_metadata`, `scope`, `error`, `error_description`) are
-sanitized: CR/LF characters stripped, backslash and double-quote escaped per RFC
-7230 quoted-string rules. | | **Information disclosure** | Error responses use
-generic messages (`"Authentication required"`). The original
-`AuthenticationError` message is discarded. Distinct error codes
-(`invalid_token` on 401, none on 403) follow RFC 6750 without leaking internal
-state. |
+sanitized: every character outside visible ASCII and space is stripped (CR,
+LF, NUL, other controls, NEL, U+2028), then backslash and double-quote are
+escaped per RFC 9110 quoted-string rules. The scheme must be an RFC 9110 token.
+| | **Information disclosure** | Error responses use generic messages
+(`"Authentication required"`). The original `AuthenticationError` message is
+discarded. Error codes follow RFC 6750: `invalid_token` on a 401 only when a
+Bearer token was presented, none when there were no credentials, and
+`insufficient_scope` with the required `scope` on a 403. The scope names are
+what step-up authorization needs; they are disclosed to any caller that reaches
+the 403. |
 
 ### Token Validation Pipeline
 
@@ -560,6 +600,11 @@ are never logged. Only `"Token validation failed"` and
 `Literal["S256"]` (plain method forbidden per OAuth 2.1). | |
 **`ClientRegistrationRequest`** | `redirect_uris` validated as absolute URIs
 with HTTPS scheme. HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`.
-| | **`AuthorizationServerMetadata`** | `issuer` must use HTTPS. All endpoint
+Fragments, user information, backslashes, whitespace, and control characters
+are rejected, since URL parsers disagree on where such URIs point.
+`grant_types`, `response_types`, and `token_endpoint_auth_method` accept only
+the values this package serves; `client_name` is limited to 256 characters
+without control or formatting characters. The `/register` endpoint checks the
+media type exactly and caps the body at 64 KB while reading it (413). | | **`AuthorizationServerMetadata`** | `issuer` must use HTTPS. All endpoint
 fields validated as HTTP/HTTPS URLs. | | **Immutability** | All Pydantic models
 use `ConfigDict(frozen=True)` to prevent post-construction mutation. |

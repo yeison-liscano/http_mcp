@@ -96,7 +96,7 @@ managing shared server state.
   those results across authorization contexts. Derived automatically when
   omitted. See [Caching Hints](#caching-hints).
 - `allowed_origins` (tuple[str, ...]): Origins the HTTP transport accepts
-  (default: empty, meaning the check is disabled). See
+  (default: empty, meaning only loopback origins are accepted). See
   [Origin Validation](#origin-validation).
 - `require_origin` (bool): Whether a request carrying no `Origin` header at all
   is refused when `allowed_origins` is set (default: `False`). See
@@ -157,6 +157,32 @@ of rules a request can select into.
 > unaffected. Mirrored `Mcp-Param-*` values are compared textually rather than
 > numerically, so a header reading `3.0` for `"replicas": 3` now gets `-32020`.
 > Every `notifications/*` method returns 404, the revision defining none.
+
+> **Behaviour changes since 0.18.0.** These close weaknesses found by an attack
+> review of the transports and of `auth_mcp`:
+>
+> - Without `allowed_origins`, a browser `Origin` that is not loopback now gets
+>   403 (see [Origin Validation](#origin-validation)). A server reached from
+>   browsers elsewhere must list those origins.
+> - A mirrored header (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, or an
+>   annotated `Mcp-Param-*`) sent more than once gets `-32020`.
+> - A tool whose header-mirrored argument also answers to an alias is refused
+>   when the server is constructed.
+> - JSON-RPC ids must be integers or strings; `true` or `1.0` are no longer
+>   coerced to `1`. Malformed JSON reports `-32700` rather than `-32602`.
+> - `Arguments.get_state_key` failures reach the client as
+>   `Internal server error`; the key name is logged instead.
+> - A 403 for missing scopes carries
+>   `WWW-Authenticate: Bearer error="insufficient_scope", scope="..."`.
+> - STDIO: an oversized line no longer ends the session, validation errors echo
+>   the request id, the scope names are no longer listed, and anything a tool
+>   writes to stdout goes to stderr.
+> - `auth_mcp`: `/register` caps the body while reading (413), checks the media
+>   type exactly, refuses redirect URIs with backslashes, whitespace or user
+>   information, and accepts only the grant types, response types and auth
+>   methods it serves. `OAuthAuthenticationBackend` refuses tokens whose
+>   `TokenInfo.expires_at` has passed or whose `audience` names another
+>   resource. A 401 to a request without a Bearer token carries no `error`.
 
 ### The 2026-07-28 Request Shape
 
@@ -257,9 +283,14 @@ is never a substitute for the per-tool scope checks.
 ### Origin Validation
 
 Browsers attach an `Origin` header, which is what lets a server refuse requests
-smuggled in by DNS rebinding. The check is off by default so existing
-deployments keep working; turn it on wherever the endpoint is reachable from a
-browser:
+smuggled in by DNS rebinding. A rebinding page points its own hostname at
+`127.0.0.1` but still sends its own origin, so by default the server accepts
+only loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port, `http` or
+`https`) and refuses every other one with `403 Forbidden`. A local server is
+protected without configuration.
+
+A server that browsers on other origins should reach, including a web app served
+from the server's own public hostname, lists them explicitly:
 
 ```python
 mcp_server = MCPServer(
@@ -270,7 +301,8 @@ mcp_server = MCPServer(
 )
 ```
 
-A request whose `Origin` is present and not on the list gets `403 Forbidden`.
+A request whose `Origin` is present and not on the list gets `403 Forbidden`;
+once a list is set, loopback origins are only accepted if they are on it.
 Requests with no `Origin` at all — ordinary non-browser clients — are unaffected
 by default, because browsers always send `Origin` on a POST and the rebinding
 threat model does not cover clients that are not browsers.
@@ -322,12 +354,22 @@ Numeric coercion would call those equal while an intermediary routing on the raw
 header string saw something else, which is the desync the mirroring exists to
 prevent.
 
+Each mirrored header must be sent once. A repeated `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name`, or annotated `Mcp-Param-*` line gets `-32020` even
+when its first copy matches the body, because intermediaries join repeated lines
+or keep the last one and would route on a value the server never checked.
+Base64-wrapped values (`=?base64?...?=`) must use the canonical encoding.
+
 Only `string`, `integer`, and `boolean` fields reachable through a plain chain
 of object properties can be annotated, and no two fields may claim the same
 header name — a collision is refused when the server is constructed, because
-keeping one of the two annotations would leave the other silently unenforced. Do
-not annotate sensitive values: header contents are visible to every intermediary
-on the path.
+keeping one of the two annotations would leave the other silently unenforced. An
+annotated field (and every field on its path) must not answer to an alias
+(`alias`, `validation_alias`, or a model's `alias_generator`): the header is
+compared with the argument under its field name, so an alias would let a request
+put one value there for the check and another under the alias for the tool. Such
+a tool is refused when the server is constructed. Do not annotate sensitive
+values: header contents are visible to every intermediary on the path.
 
 ## Tools
 
@@ -979,6 +1021,13 @@ The `request_headers` parameter allows you to pass headers that will be included
 in the request context, enabling authentication and other header-based features
 even when using STDIO transport.
 
+While `serve_stdio` runs, the process's stdout is reserved for protocol frames:
+file descriptor 1 is pointed at stderr, so `print()` in a tool, a chatty
+library, or a child process cannot write something the client would read as a
+message. Scope-restricted tools and prompts are always denied over STDIO,
+because there is no authentication middleware, and the error does not name the
+scopes.
+
 ## Authentication and Authorization
 
 The library integrates with Starlette's authentication system to provide
@@ -1068,6 +1117,14 @@ app.mount("/mcp", mcp_server.app)
 1. **Multiple Scopes**: If you specify multiple scopes (e.g.,
    `scopes=("admin", "superuser")`), the user needs at least one of those scopes
    to access the tool or prompt.
+
+1. **Step-up**: Calling a tool or prompt without its scopes gets `403 Forbidden`
+   with
+   `WWW-Authenticate: Bearer error="insufficient_scope", scope="admin superuser"`,
+   which is what lets an OAuth client request a token with more scopes. The
+   trade-off is deliberate: a caller can tell a hidden tool (403) from an
+   unknown one (`-32602`) and learn which scopes it needs, though never its
+   description or schema. Do not encode secrets in tool, prompt, or scope names.
 
 ## API Reference
 
@@ -1223,19 +1280,23 @@ For full documentation, best practices, and security surface details, see
   refused before the body is read at all, and a body that outgrows the cap
   mid-stream stops being buffered at that point. Content-Type strictly checked
   (`application/json` only, media type parameters ignored).
+- **Header mirroring** — Each mirrored header is compared with the body and must
+  appear once; aliases on header-mirrored arguments are refused at construction.
+- **Origin** — Only loopback origins are accepted unless `allowed_origins` is
+  set (DNS-rebinding defence).
 - **Error handling** — Tool and prompt names truncated to 100 characters in
   error messages. Pydantic validation errors sanitized before inclusion in
-  responses.
+  responses. Wiring errors from `Arguments.get_state_key` reach the client as
+  `Internal server error`, with the detail logged.
 - **Response headers** — `X-Content-Type-Options: nosniff`,
   `Cache-Control: no-store` on all responses. `auth_mcp` additionally adds
   `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
 
 ### `GET /.well-known/oauth-protected-resource` — Discovery Endpoint (auth_mcp)
 
-- **Authentication** — Subject to the same auth middleware as `/mcp`. When
-  `require_authentication=True` (default), requires a valid token. Set to
-  `False` if clients need to discover the authorization server before
-  authenticating.
+- **Authentication** — None. The route sits outside the auth middleware that
+  wraps `/mcp`, because RFC 9728 discovery is how an unauthenticated client
+  finds the authorization server; it serves public metadata only.
 - **Input validation** — Only `GET` allowed; other methods return
   `405 Method Not Allowed`.
 - **Output** — Serialized once at startup from a frozen
@@ -1245,16 +1306,22 @@ For full documentation, best practices, and security surface details, see
 ### `WWW-Authenticate` Response Header (auth_mcp)
 
 - **Header injection** — All parameter values (`realm`, `resource_metadata`,
-  `scope`, `error`, `error_description`) are sanitized: CR/LF characters
-  stripped, backslash and double-quote escaped per RFC 7230 quoted-string rules.
+  `scope`, `error`, `error_description`) are sanitized: every character outside
+  visible ASCII and space is stripped (CR, LF, NUL, other controls, NEL,
+  U+2028), then backslash and double-quote are escaped per RFC 9110
+  quoted-string rules. The scheme must be an RFC 9110 token.
 - **Information disclosure** — Error responses use generic messages
   (`"Authentication required"`). The original `AuthenticationError` details are
-  discarded. Error codes (`invalid_token` on 401) follow RFC 6750 without
-  leaking internal state.
+  discarded. Error codes follow RFC 6750: `invalid_token` on a 401 only when a
+  Bearer token was presented, none when the request carried no credentials, and
+  `insufficient_scope` with the required `scope` on a 403.
 
 ### STDIO Transport
 
-- **Message size** — Capped at 4 MB, matching HTTP transport.
+- **Message size** — Capped at 4 MB, matching HTTP transport. An oversized line
+  is answered with an error and skipped to its newline; the session continues.
+- **Output** — Protocol frames are the only thing written to stdout; the
+  process's stdout is redirected to stderr while `serve_stdio` runs.
 - **Logging** — Messages truncated to 500 characters in debug logs to prevent
   log flooding. Token values are never logged.
 - **Headers** — Request headers are converted to proper ASGI

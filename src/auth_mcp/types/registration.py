@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Annotated, Literal
 from urllib.parse import urlparse
@@ -32,6 +34,27 @@ DISALLOWED_REDIRECT_SCHEMES: frozenset[str] = frozenset(
 )
 
 
+# OAuth 2.1 removed the implicit and password grants, and the token endpoint models in
+# `auth_mcp.types.oauth` serve these two only.
+GrantType = Literal["authorization_code", "refresh_token"]
+ResponseType = Literal["code"]
+# RFC 7591 section 2 and the IANA "OAuth Token Endpoint Authentication Methods" registry.
+TokenEndpointAuthMethod = Literal[
+    "none",
+    "client_secret_basic",
+    "client_secret_post",
+    "client_secret_jwt",
+    "private_key_jwt",
+]
+
+_MAX_CLIENT_NAME_LENGTH = 256
+# Whitespace, ASCII control characters and backslash. Python's URL parser and a browser's
+# disagree on all of them: `urlparse` reads `http://evil.example\@localhost/` as host
+# `localhost`, while the WHATWG parser ends the authority at the backslash and goes to
+# `evil.example`.
+_UNSAFE_URI_CHARACTERS = re.compile(r"[\x00-\x20\x7f\\]")
+
+
 @dataclass(frozen=True)
 class RedirectUriViolation:
     reason: str
@@ -46,7 +69,13 @@ class ClientRegistrationRequest(BaseModel):
     in the ``allowed_custom_redirect_schemes`` validation context entry
     (RFC 8252 — OAuth 2.0 for Native Apps). Schemes in
     :data:`DISALLOWED_REDIRECT_SCHEMES` are always rejected, as is any URI carrying
-    a fragment (RFC 6749 3.1.2). At least one redirect URI is required.
+    a fragment (RFC 6749 3.1.2). At least one redirect URI is required. URIs containing
+    whitespace, control characters, a backslash, or user information are rejected, as
+    parsers disagree about where such URIs point.
+
+    ``grant_types``, ``response_types`` and ``token_endpoint_auth_method`` accept only
+    the values this package serves, and ``client_name`` is limited in length and may not
+    contain control or formatting characters, since consent screens display it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -54,10 +83,25 @@ class ClientRegistrationRequest(BaseModel):
     # RFC 7591: a client using the authorization_code grant must register at least
     # one redirect URI, or the authorization server has nothing to match against.
     redirect_uris: Annotated[tuple[str, ...], Field(min_length=1)]
-    client_name: str | None = None
-    grant_types: tuple[str, ...] = ("authorization_code",)
-    response_types: tuple[str, ...] = ("code",)
-    token_endpoint_auth_method: str = "none"  # noqa: S105
+    client_name: Annotated[str, Field(max_length=_MAX_CLIENT_NAME_LENGTH)] | None = None
+    grant_types: tuple[GrantType, ...] = ("authorization_code",)
+    response_types: tuple[ResponseType, ...] = ("code",)
+    token_endpoint_auth_method: TokenEndpointAuthMethod = "none"  # noqa: S105
+
+    @field_validator("client_name")
+    @classmethod
+    def _validate_client_name(cls, v: str | None) -> str | None:
+        # Categories C* (control, format, surrogate, private use, unassigned) and the
+        # line and paragraph separators. Format characters include the bidirectional
+        # overrides that can make a consent screen show a different name.
+        if v is not None and any(
+            unicodedata.category(char)[0] == "C" or unicodedata.category(char) in ("Zl", "Zp")
+            for char in v
+        ):
+            msg = "client_name must not contain control or formatting characters"
+            # Raising is how a pydantic validator reports invalid input.
+            raise ValueError(msg)
+        return v
 
     @field_validator("redirect_uris")
     @classmethod
@@ -98,6 +142,15 @@ def _find_redirect_uri_violation(  # noqa: PLR0911
         # but this validator is the authoritative gate — do not reorder.
         case _ if scheme in DISALLOWED_REDIRECT_SCHEMES:
             return RedirectUriViolation(f"Redirect URI scheme is not allowed: {uri}")
+        case _ if _UNSAFE_URI_CHARACTERS.search(uri):
+            return RedirectUriViolation(
+                "Redirect URI must not contain whitespace, control characters or "
+                f"backslashes: {uri!r}",
+            )
+        # Userinfo has no place in a redirect URI, and it is how `user@host` spellings
+        # make a URI look like it points somewhere it does not.
+        case _ if "@" in parsed.netloc:
+            return RedirectUriViolation(f"Redirect URI must not contain user information: {uri}")
         # RFC 6749 3.1.2: redirection endpoint URIs must not include a fragment.
         case _ if parsed.fragment:
             return RedirectUriViolation(f"Redirect URI must not contain a fragment: {uri}")

@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from starlette.applications import Starlette
 from starlette.authentication import AuthenticationError
 from starlette.middleware import Middleware
@@ -51,13 +52,66 @@ def test_auth_error_middleware_adds_www_authenticate_on_401() -> None:
         ],
     )
     client = TestClient(app)
-    response = client.get("/")
+    response = client.get("/", headers={"Authorization": "Bearer expired-token"})
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     assert "www-authenticate" in response.headers
     www_auth = response.headers["www-authenticate"]
     assert "Bearer" in www_auth
     assert "resource_metadata=" in www_auth
     assert 'error="invalid_token"' in www_auth
+
+
+def _app_returning(status: HTTPStatus, headers: dict[str, str] | None = None) -> TestClient:
+    async def endpoint(_request: Request) -> Response:
+        return Response(status_code=status, headers=headers)
+
+    return TestClient(
+        Starlette(
+            routes=[Route("/", endpoint)],
+            middleware=[
+                Middleware(
+                    AuthErrorMiddleware,
+                    resource_metadata_url="https://mcp.example.com/.well-known/oauth-protected-resource",
+                ),
+            ],
+        ),
+    )
+
+
+@pytest.mark.parametrize("authorization", [None, "Basic dXNlcjpwYXNz", "Digest x"])
+def test_401_without_bearer_credentials_carries_no_error(authorization: str | None) -> None:
+    """RFC 6750 section 3.1: no token was presented, so none can be called invalid."""
+    sent = {"Authorization": authorization} if authorization is not None else None
+
+    response = _app_returning(HTTPStatus.UNAUTHORIZED).get("/", headers=sent)
+
+    assert response.headers["www-authenticate"] == (
+        'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"'
+    )
+
+
+def test_403_keeps_the_scope_the_app_named_in_one_challenge() -> None:
+    """The scope drives step-up authorization; the app's challenge is replaced, not doubled."""
+    client = _app_returning(
+        HTTPStatus.FORBIDDEN,
+        {"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin billing:write"'},
+    )
+
+    response = client.get("/", headers={"Authorization": "Bearer token"})
+
+    metadata = "https://mcp.example.com/.well-known/oauth-protected-resource"
+    expected = (
+        f'Bearer resource_metadata="{metadata}", '
+        'scope="admin billing:write", error="insufficient_scope"'
+    )
+    assert response.headers.get_list("www-authenticate") == [expected]
+
+
+def test_403_without_a_scope_from_the_app_names_none() -> None:
+    response = _app_returning(HTTPStatus.FORBIDDEN).get("/")
+
+    assert "scope=" not in response.headers["www-authenticate"]
+    assert 'error="insufficient_scope"' in response.headers["www-authenticate"]
 
 
 def test_auth_error_middleware_adds_www_authenticate_on_403() -> None:

@@ -8,6 +8,7 @@ from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp.exceptions import ServerError
 
 LOGGER = logging.getLogger(__name__)
+_WIRING_ERROR = "Internal server error"
 
 
 class NoArguments(BaseModel):
@@ -24,12 +25,15 @@ class Arguments[TInputs: BaseModel | None]:
         key: str,
         _object_type: type[TKey],
     ) -> TKey:
+        # Both failures mean the application was wired wrong. The detail goes to the log
+        # for the developer; the client only learns that the server failed.
         if not hasattr(self.request.state, key):
-            message = (
-                f"Key {key} not found in request state, make sure to add it to the"
-                " request state in the lifespan of the application."
+            LOGGER.error(
+                "Key '%s' not found in request state, make sure to add it to the"
+                " request state in the lifespan of the application.",
+                key,
             )
-            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=message))
+            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=_WIRING_ERROR))
 
         value = self.request.state.__getattr__(key)
         if not isinstance(value, _object_type):
@@ -39,8 +43,7 @@ class Arguments[TInputs: BaseModel | None]:
                 type(value).__name__,
                 _object_type.__name__,
             )
-            message = f"State key '{key}' type mismatch: expected type does not match stored type"
-            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=message))
+            raise ServerError(Error(code=ErrorCode.INTERNAL_ERROR, description=_WIRING_ERROR))
 
         return value
 

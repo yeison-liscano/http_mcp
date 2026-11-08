@@ -43,7 +43,13 @@ class ArgumentPresent:
 
 
 def decode_header_value(value: str) -> str | MalformedHeaderValue:
-    """Unwrap the Base64 sentinel format, or return the value unchanged."""
+    """Unwrap the Base64 sentinel format, or return the value unchanged.
+
+    Only the canonical encoding is accepted. Base64 leaves unused bits in the last
+    character before padding, so ``dXM=`` and ``dXN=`` both decode to ``us``; accepting
+    both would give one value several header spellings, and an intermediary keyed on
+    the raw header would then see distinct values where the server sees one.
+    """
     if not (
         len(value) >= len(BASE64_PREFIX) + len(BASE64_SUFFIX)
         and value.startswith(BASE64_PREFIX)
@@ -52,9 +58,13 @@ def decode_header_value(value: str) -> str | MalformedHeaderValue:
         return value
     payload = value[len(BASE64_PREFIX) : -len(BASE64_SUFFIX)]
     try:
-        return base64.b64decode(payload, validate=True).decode("utf-8")
+        raw = base64.b64decode(payload, validate=True)
+        decoded = raw.decode("utf-8")
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return MalformedHeaderValue()
+    if base64.b64encode(raw).decode("ascii") != payload:
+        return MalformedHeaderValue()
+    return decoded
 
 
 def is_valid_header_value(value: str) -> bool:
