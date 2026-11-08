@@ -1,7 +1,9 @@
+import re
 from http import HTTPStatus
 from typing import Any
 
 from starlette.authentication import AuthenticationError
+from starlette.datastructures import Headers
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -13,6 +15,28 @@ _SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
     (b"cache-control", b"no-store"),
     (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
 ]
+_WWW_AUTHENTICATE = b"www-authenticate"
+# The `scope` parameter of a challenge the wrapped app sent, such as the one the MCP
+# transport attaches to a 403 naming the scopes the call needs.
+_CHALLENGE_SCOPE = re.compile(rb'scope="([^"\\]*)"')
+
+
+def _presents_bearer_credentials(scope: Scope) -> bool:
+    """Report whether the request carried a Bearer token, valid or not."""
+    authorization = Headers(scope=scope).get("authorization")
+    if authorization is None:
+        return False
+    return authorization.split(" ", maxsplit=1)[0].lower() == "bearer"
+
+
+def _challenge_scope(headers: list[tuple[bytes, bytes]]) -> str | None:
+    """Return the scope a challenge from the wrapped app names, if it names one."""
+    for name, value in headers:
+        if name.lower() == _WWW_AUTHENTICATE:
+            match = _CHALLENGE_SCOPE.search(value)
+            if match is not None:
+                return match.group(1).decode("latin-1")
+    return None
 
 
 def build_www_authenticate_header(
@@ -37,8 +61,13 @@ class AuthErrorMiddleware:
     """ASGI middleware that adds security headers and WWW-Authenticate on 401/403.
 
     Adds security headers (nosniff, no-store, HSTS) to all HTTP responses.
-    On 401/403, additionally injects a WWW-Authenticate header with the
+    On 401/403, additionally sets a WWW-Authenticate header with the
     resource_metadata discovery parameter per RFC 9728.
+
+    A 401 to a request that presented no Bearer token carries no ``error`` (RFC 6750
+    section 3.1): the client did not know authentication was needed, so there is no
+    token to call invalid. A 403 keeps the ``scope`` the wrapped app named, which is
+    what lets the client step up to a token with the missing scopes.
     """
 
     def __init__(
@@ -68,24 +97,30 @@ class AuthErrorMiddleware:
                     HTTPStatus.UNAUTHORIZED,
                     HTTPStatus.FORBIDDEN,
                 ):
-                    if status_code == HTTPStatus.UNAUTHORIZED:
-                        error = "invalid_token"
-                    else:
-                        error = "insufficient_scope"
-                    www_auth = build_www_authenticate_header(
-                        resource_metadata_url=self._resource_metadata_url,
-                        realm=self._realm,
-                        error=error,
-                    )
-                    headers.append(
-                        (b"www-authenticate", www_auth.encode("utf-8")),
-                    )
+                    www_auth = self._challenge(status_code, scope, _challenge_scope(headers))
+                    # One complete challenge replaces whatever the app sent.
+                    headers = [h for h in headers if h[0].lower() != _WWW_AUTHENTICATE]
+                    headers.append((_WWW_AUTHENTICATE, www_auth.encode("ascii")))
 
                 message = {**message, "headers": headers}
 
             await send(message)
 
         await self._app(scope, receive, send_wrapper)  # type: ignore[arg-type]
+
+    def _challenge(self, status_code: int, scope: Scope, required_scope: str | None) -> str:
+        if status_code == HTTPStatus.FORBIDDEN:
+            error: str | None = "insufficient_scope"
+        elif _presents_bearer_credentials(scope):
+            error = "invalid_token"
+        else:
+            error = None
+        return build_www_authenticate_header(
+            resource_metadata_url=self._resource_metadata_url,
+            realm=self._realm,
+            scope=required_scope if status_code == HTTPStatus.FORBIDDEN else None,
+            error=error,
+        )
 
 
 def on_auth_error(

@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from starlette.authentication import UnauthenticatedUser
 from starlette.requests import HTTPConnection
@@ -265,3 +267,61 @@ async def test_token_never_reaches_the_validator_when_malformed() -> None:
     )
     await backend.authenticate(_make_connection({"Authorization": "Bearer abc123\n"}))
     assert seen == []
+
+
+# ---------------------------------------------------------------------------
+# Expiry and audience are enforced whatever the validator checked
+# ---------------------------------------------------------------------------
+
+_RESOURCE = "https://mcp.example.com/"
+
+
+class _FixedTokenValidator(TokenValidator):
+    """Accept any token, describing it with the given token info."""
+
+    def __init__(self, token_info: TokenInfo) -> None:
+        self._token_info = token_info
+
+    async def validate_token(self, token: str, resource: str | None = None) -> TokenInfo | None:  # noqa: ARG002
+        return self._token_info
+
+
+async def _authenticate(token_info: TokenInfo) -> bool:
+    backend = OAuthAuthenticationBackend(
+        token_validator=_FixedTokenValidator(token_info),
+        resource_uri=_RESOURCE,
+        require_authentication=False,
+    )
+    _, user = await backend.authenticate(_make_connection({"Authorization": "Bearer token"}))
+    return user.is_authenticated
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_info",
+    [
+        TokenInfo(subject="u", scopes=("admin",), expires_at=int(time.time()) - 86_400),
+        TokenInfo(subject="u", audience="https://other.example.com"),
+        TokenInfo(subject="u", audience="https://mcp.example.com/other"),
+        TokenInfo(subject="u", audience="https://mcp.example.com.evil.example/"),
+        TokenInfo(subject="u", audience="http://[::1"),
+    ],
+    ids=["expired", "other-host", "other-path", "suffix-host", "unparsable"],
+)
+async def test_expired_or_misdirected_token_is_rejected(token_info: TokenInfo) -> None:
+    assert not await _authenticate(token_info)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_info",
+    [
+        TokenInfo(subject="u"),
+        TokenInfo(subject="u", expires_at=int(time.time()) + 3_600),
+        TokenInfo(subject="u", audience="https://mcp.example.com"),
+        TokenInfo(subject="u", audience="https://MCP.Example.com/"),
+    ],
+    ids=["no-claims", "unexpired", "no-trailing-slash", "case-differs"],
+)
+async def test_current_token_for_this_resource_is_accepted(token_info: TokenInfo) -> None:
+    assert await _authenticate(token_info)

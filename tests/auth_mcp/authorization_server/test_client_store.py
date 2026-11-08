@@ -1,7 +1,6 @@
 import pytest
 
-from auth_mcp.authorization_server.client_store import ClientStore
-from auth_mcp.exceptions import RegistrationError
+from auth_mcp.authorization_server.client_store import ClientStore, RegistrationRejected
 from auth_mcp.types.registration import ClientRegistrationRequest, ClientRegistrationResponse
 
 
@@ -30,12 +29,12 @@ class MockClientStore(ClientStore):
         return self._clients.get(client_id)
 
 
-class FailingClientStore(ClientStore):
+class RejectingClientStore(ClientStore):
     async def register_client(
         self,
         request: ClientRegistrationRequest,  # noqa: ARG002
-    ) -> ClientRegistrationResponse:
-        raise RegistrationError("Registration denied")  # noqa: TRY003
+    ) -> RegistrationRejected:
+        return RegistrationRejected("Registration denied")
 
 
 @pytest.mark.asyncio
@@ -53,7 +52,7 @@ async def test_register_client_returns_valid_response() -> None:
 
 @pytest.mark.asyncio
 async def test_default_get_client_returns_none() -> None:
-    store = FailingClientStore()
+    store = RejectingClientStore()
     result = await store.get_client("nonexistent")
     assert result is None
 
@@ -71,10 +70,9 @@ async def test_overridden_get_client_returns_stored_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_register_client_raises_registration_error() -> None:
-    store = FailingClientStore()
+async def test_register_client_returns_the_rejection() -> None:
+    store = RejectingClientStore()
     request = ClientRegistrationRequest(
         redirect_uris=("https://example.com/callback",),
     )
-    with pytest.raises(RegistrationError, match="Registration denied"):
-        await store.register_client(request)
+    assert await store.register_client(request) == RegistrationRejected("Registration denied")

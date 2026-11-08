@@ -1,10 +1,8 @@
 """Base result shapes shared by every MCP method.
 
-Revision ``2026-07-28`` added ``resultType`` to all results, a ``_meta`` block
-identifying the server, and caching hints on list-style results. Legacy revisions
-define none of them, so the fields default to ``None`` and are dropped by the
-``exclude_none=True`` serialization the transports use. Only the modern dispatch
-path fills them in.
+Revision ``2026-07-28`` requires ``resultType`` and a ``_meta`` block identifying the
+server on all results, and caching hints on list-style results. The fields are required
+here so that a result missing them cannot be built.
 """
 
 from typing import Literal
@@ -18,16 +16,12 @@ CacheScope = Literal["public", "private"]
 
 
 class Result(BaseModel):
-    result_type: ResultType | None = Field(
+    result_type: ResultType = Field(
         serialization_alias="resultType",
         alias_priority=1,
-        default=None,
+        default="complete",
     )
-    meta: ResultMeta | None = Field(
-        serialization_alias="_meta",
-        alias_priority=1,
-        default=None,
-    )
+    meta: ResultMeta = Field(serialization_alias="_meta", alias_priority=1)
 
 
 class CacheableResult(Result):
@@ -36,9 +30,5 @@ class CacheableResult(Result):
     Carried by ``server/discover``, ``tools/list``, and ``prompts/list``.
     """
 
-    ttl_ms: int | None = Field(serialization_alias="ttlMs", alias_priority=1, default=None)
-    cache_scope: CacheScope | None = Field(
-        serialization_alias="cacheScope",
-        alias_priority=1,
-        default=None,
-    )
+    ttl_ms: int = Field(serialization_alias="ttlMs", alias_priority=1)
+    cache_scope: CacheScope = Field(serialization_alias="cacheScope", alias_priority=1)

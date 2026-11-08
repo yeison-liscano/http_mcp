@@ -450,6 +450,7 @@ from auth_mcp.resource_server import (
     ProtectedMCPAppConfig,
     create_protected_mcp_app,
 )
+from auth_mcp.types import ProtectedResourceMetadata
 from auth_mcp.types.metadata import AuthorizationServerMetadata
 
 mcp_server = MCPServer(
@@ -472,9 +473,11 @@ config = ProtectedMCPAppConfig(
         public_key=PUBLIC_KEY,
         issuer="https://mcp.myapp.com",
     ),
-    resource_uri="https://mcp.myapp.com",
-    authorization_servers=("https://mcp.myapp.com",),
-    scopes_supported=("read", "write"),
+    resource_endpoint=ProtectedResourceMetadata(
+        resource="https://mcp.myapp.com",
+        authorization_servers=("https://mcp.myapp.com",),
+        scopes_supported=("read", "write"),
+    ),
     authorization_server_metadata=as_metadata,
     client_store=DatabaseClientStore(),
 )

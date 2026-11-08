@@ -4,7 +4,7 @@ import pytest
 from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import ErrorCode
-from http_mcp._json_rcp_types.messages import JSONRPCError, JSONRPCRequest
+from http_mcp._json_rcp_types.messages import JSONRPCRequest
 from http_mcp._mcp_types.versions import LATEST_PROTOCOL_VERSION
 from http_mcp._transport_http import HTTPTransport
 from tests.fixtures.main import mcp_server, mount_mcp_server
@@ -174,11 +174,11 @@ def test_tools_list_with_invalid_cursor_returns_invalid_params() -> None:
 
 @pytest.mark.asyncio
 async def test_unhandled_method_fails_closed() -> None:
-    """A method with no handler must 404, not fall through to some default.
+    """A method with no handler must crash, not fall through to some default.
 
     `model_construct` bypasses validation the way a future widening of the method
-    literal would: the guard exists so that adding a method without wiring a handler
-    is a visible 404 rather than silent, unspecified behaviour.
+    literal would. Widening it is first a type error at the `assert_never` in the
+    dispatcher; this pins the runtime half, which the transports report as a 500.
     """
     transport = HTTPTransport(DUMMY_SERVER)
     message = JSONRPCRequest.model_construct(
@@ -188,12 +188,8 @@ async def test_unhandled_method_fails_closed() -> None:
         params={"_meta": request_meta()},
     )
 
-    response, status = await transport._process_request(  # noqa: SLF001
-        message,
-        Request({"type": "http", "method": "POST", "headers": [], "path": "/"}),
-    )
-
-    assert status == HTTPStatus.NOT_FOUND
-    assert isinstance(response, JSONRPCError)
-    assert response.error.code == ErrorCode.METHOD_NOT_FOUND
-    assert response.error.message == "Method not supported: resources/read"
+    with pytest.raises(AssertionError):
+        await transport._process_request(  # noqa: SLF001
+            message,
+            Request({"type": "http", "method": "POST", "headers": [], "path": "/"}),
+        )

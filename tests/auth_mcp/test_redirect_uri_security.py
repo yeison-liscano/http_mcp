@@ -417,3 +417,63 @@ def test_e2e_denylist_rejected_through_endpoint(scheme: str) -> None:
     assert response.status_code == HTTPStatus.BAD_REQUEST
     data = response.json()
     assert data["error"] == "invalid_client_metadata"
+
+
+# ---------------------------------------------------------------------------
+# Parser differentials: backslash, userinfo, whitespace and control characters
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        # `urlparse` reads the host as the loopback name; a browser reads evil.example.
+        "http://evil.example\\@localhost/cb",
+        "http://evil.example\\@127.0.0.1/cb",
+        "http://evil.example\\@[::1]/cb",
+        "https://good.example\\@evil.example/cb",
+        "https://good.example/cb\\..\\evil",
+    ],
+)
+def test_backslash_is_rejected(uri: str) -> None:
+    with pytest.raises(ValidationError, match="backslashes"):
+        _model_validate((uri,))
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://evil.example@localhost/cb",
+        "http://user:pass@localhost:8080/cb",
+        "https://localhost@evil.example/cb",
+        "https://client@app.example.com/cb",
+    ],
+)
+def test_userinfo_is_rejected(uri: str) -> None:
+    with pytest.raises(ValidationError, match="user information"):
+        _model_validate((uri,))
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://app.example.com/cb\n",
+        "https://app.example.com/c b",
+        "http://localhost\t.evil.example/cb",
+        "https://app.example.com/cb\x00",
+        "https://app.example.com/cb\x7f",
+        " https://app.example.com/cb",
+    ],
+)
+def test_whitespace_and_control_characters_are_rejected(uri: str) -> None:
+    with pytest.raises(ValidationError, match="control characters"):
+        _model_validate((uri,))
+
+
+def test_e2e_backslash_rejected_through_endpoint() -> None:
+    response = _endpoint_client().post(
+        "/",
+        json={"redirect_uris": ["http://evil.example\\@localhost/cb"]},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"] == "invalid_client_metadata"

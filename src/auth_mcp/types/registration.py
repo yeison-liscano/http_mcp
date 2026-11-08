@@ -1,4 +1,7 @@
-from typing import Annotated
+import re
+import unicodedata
+from dataclasses import dataclass
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
@@ -31,6 +34,33 @@ DISALLOWED_REDIRECT_SCHEMES: frozenset[str] = frozenset(
 )
 
 
+# OAuth 2.1 removed the implicit and password grants, and the token endpoint models in
+# `auth_mcp.types.oauth` serve these two only.
+GrantType = Literal["authorization_code", "refresh_token"]
+ResponseType = Literal["code"]
+# RFC 7591 section 2 and the IANA "OAuth Token Endpoint Authentication Methods" registry.
+TokenEndpointAuthMethod = Literal[
+    "none",
+    "client_secret_basic",
+    "client_secret_post",
+    "client_secret_jwt",
+    "private_key_jwt",
+]
+
+_MAX_CLIENT_NAME_LENGTH = 256
+# Whitespace, ASCII control characters and backslash. Python's URL parser and a browser's
+# disagree on all of them: `urlparse` reads `http://evil.example\@localhost/` as host
+# `localhost`, while the WHATWG parser ends the authority at the backslash and goes to
+# `evil.example`.
+_UNSAFE_URI_CHARACTERS = re.compile(r"[\x00-\x20\x7f\\]")
+
+
+@dataclass(frozen=True)
+class RedirectUriViolation:
+    reason: str
+    type: Literal["redirect_uri_violation"] = "redirect_uri_violation"
+
+
 class ClientRegistrationRequest(BaseModel):
     """RFC 7591 dynamic client registration request.
 
@@ -39,7 +69,13 @@ class ClientRegistrationRequest(BaseModel):
     in the ``allowed_custom_redirect_schemes`` validation context entry
     (RFC 8252 — OAuth 2.0 for Native Apps). Schemes in
     :data:`DISALLOWED_REDIRECT_SCHEMES` are always rejected, as is any URI carrying
-    a fragment (RFC 6749 3.1.2). At least one redirect URI is required.
+    a fragment (RFC 6749 3.1.2). At least one redirect URI is required. URIs containing
+    whitespace, control characters, a backslash, or user information are rejected, as
+    parsers disagree about where such URIs point.
+
+    ``grant_types``, ``response_types`` and ``token_endpoint_auth_method`` accept only
+    the values this package serves, and ``client_name`` is limited in length and may not
+    contain control or formatting characters, since consent screens display it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -47,10 +83,25 @@ class ClientRegistrationRequest(BaseModel):
     # RFC 7591: a client using the authorization_code grant must register at least
     # one redirect URI, or the authorization server has nothing to match against.
     redirect_uris: Annotated[tuple[str, ...], Field(min_length=1)]
-    client_name: str | None = None
-    grant_types: tuple[str, ...] = ("authorization_code",)
-    response_types: tuple[str, ...] = ("code",)
-    token_endpoint_auth_method: str = "none"  # noqa: S105
+    client_name: Annotated[str, Field(max_length=_MAX_CLIENT_NAME_LENGTH)] | None = None
+    grant_types: tuple[GrantType, ...] = ("authorization_code",)
+    response_types: tuple[ResponseType, ...] = ("code",)
+    token_endpoint_auth_method: TokenEndpointAuthMethod = "none"  # noqa: S105
+
+    @field_validator("client_name")
+    @classmethod
+    def _validate_client_name(cls, v: str | None) -> str | None:
+        # Categories C* (control, format, surrogate, private use, unassigned) and the
+        # line and paragraph separators. Format characters include the bidirectional
+        # overrides that can make a consent screen show a different name.
+        if v is not None and any(
+            unicodedata.category(char)[0] == "C" or unicodedata.category(char) in ("Zl", "Zp")
+            for char in v
+        ):
+            msg = "client_name must not contain control or formatting characters"
+            # Raising is how a pydantic validator reports invalid input.
+            raise ValueError(msg)
+        return v
 
     @field_validator("redirect_uris")
     @classmethod
@@ -65,72 +116,59 @@ class ClientRegistrationRequest(BaseModel):
             if raw is not None:
                 allowed_custom = frozenset(s.lower() for s in raw)
         for uri in v:
-            _validate_single_redirect_uri(uri, allowed_custom)
+            violation = _find_redirect_uri_violation(uri, allowed_custom)
+            if violation is not None:
+                # Raising is how a pydantic validator reports invalid input.
+                raise ValueError(violation.reason)
         return v
 
 
 _LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
-def _require_netloc(netloc: str, uri: str) -> None:
-    if not netloc:
-        msg = f"Redirect URI must be an absolute URI: {uri}"
-        raise ValueError(msg)
-
-
-def _validate_custom_scheme(
-    scheme: str,
-    netloc: str,
-    path: str,
+def _find_redirect_uri_violation(  # noqa: PLR0911
     uri: str,
     allowed_custom: frozenset[str],
-) -> None:
-    """Validate a non-HTTP(S) scheme (RFC 8252 — OAuth 2.0 for Native Apps).
-
-    Only accepted when the library caller has explicitly opted this scheme in.
-    """
-    if scheme not in allowed_custom:
-        msg = (
-            "Redirect URI must use HTTPS (or HTTP for localhost), "
-            f"or a scheme explicitly allowed by the server: {uri}"
-        )
-        raise ValueError(msg)
-    if not netloc and not path:
-        msg = f"Redirect URI must be an absolute URI: {uri}"
-        raise ValueError(msg)
-
-
-def _validate_single_redirect_uri(uri: str, allowed_custom: frozenset[str]) -> None:
+) -> RedirectUriViolation | None:
     parsed = urlparse(uri)
     scheme = parsed.scheme.lower()
-    if not scheme:
-        msg = f"Redirect URI must be an absolute URI: {uri}"
-        raise ValueError(msg)
-    # SECURITY: the denylist check MUST stay above the allowlist check below, and
-    # above the fragment check — a dangerous scheme must be reported as a dangerous
-    # scheme, not as whatever else happens to be wrong with the URI. Callers can pass
-    # ``allowed_custom_redirect_schemes`` via Pydantic context, and the endpoint's
-    # ``__init__`` guards against known-dangerous entries, but this validator is the
-    # authoritative gate — do not reorder.
-    if scheme in DISALLOWED_REDIRECT_SCHEMES:
-        msg = f"Redirect URI scheme is not allowed: {uri}"
-        raise ValueError(msg)
-    # RFC 6749 3.1.2: the redirection endpoint URI must not include a fragment.
-    if parsed.fragment:
-        msg = f"Redirect URI must not contain a fragment: {uri}"
-        raise ValueError(msg)
-    if scheme == "https":
-        _require_netloc(parsed.netloc, uri)
-        return
-    if scheme == "http":
-        _require_netloc(parsed.netloc, uri)
-        # `parsed.hostname` strips any userinfo, so `http://localhost@evil.com` is
-        # correctly read as the host `evil.com` and rejected.
-        if parsed.hostname not in _LOOPBACK_HOSTS:
-            msg = f"HTTP redirect URIs are only allowed for localhost: {uri}"
-            raise ValueError(msg)
-        return
-    _validate_custom_scheme(scheme, parsed.netloc, parsed.path, uri, allowed_custom)
+    not_absolute = RedirectUriViolation(f"Redirect URI must be an absolute URI: {uri}")
+    match scheme:
+        case "":
+            return not_absolute
+        # SECURITY: the denylist check MUST stay above the allowlist and fragment checks below.
+        # Callers can pass ``allowed_custom_redirect_schemes`` via Pydantic context,
+        # and the endpoint's ``__init__`` guards against known-dangerous entries,
+        # but this validator is the authoritative gate — do not reorder.
+        case _ if scheme in DISALLOWED_REDIRECT_SCHEMES:
+            return RedirectUriViolation(f"Redirect URI scheme is not allowed: {uri}")
+        case _ if _UNSAFE_URI_CHARACTERS.search(uri):
+            return RedirectUriViolation(
+                "Redirect URI must not contain whitespace, control characters or "
+                f"backslashes: {uri!r}",
+            )
+        # Userinfo has no place in a redirect URI, and it is how `user@host` spellings
+        # make a URI look like it points somewhere it does not.
+        case _ if "@" in parsed.netloc:
+            return RedirectUriViolation(f"Redirect URI must not contain user information: {uri}")
+        # RFC 6749 3.1.2: redirection endpoint URIs must not include a fragment.
+        case _ if parsed.fragment:
+            return RedirectUriViolation(f"Redirect URI must not contain a fragment: {uri}")
+        case "https" | "http" if not parsed.netloc:
+            return not_absolute
+        case "http" if parsed.hostname not in _LOOPBACK_HOSTS:
+            return RedirectUriViolation(f"HTTP redirect URIs are only allowed for localhost: {uri}")
+        case "https" | "http":
+            return None
+        # Custom URI scheme (RFC 8252). Only accepted when the library caller has
+        # explicitly opted this scheme in.
+        case _ if scheme not in allowed_custom:
+            return RedirectUriViolation(
+                "Redirect URI must use HTTPS (or HTTP for localhost), "
+                f"or a scheme explicitly allowed by the server: {uri}",
+            )
+        case _:
+            return None if parsed.netloc or parsed.path else not_absolute
 
 
 class ClientRegistrationResponse(BaseModel):

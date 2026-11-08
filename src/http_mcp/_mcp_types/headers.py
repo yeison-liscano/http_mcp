@@ -10,29 +10,45 @@ import base64
 import binascii
 import json
 from collections.abc import Mapping
-from typing import Any, Final
+from dataclasses import dataclass
+from typing import Any, Final, Literal, assert_never
 
 BASE64_PREFIX: Final = "=?base64?"
 BASE64_SUFFIX: Final = "?="
 HEADER_PARAM_PREFIX: Final = "mcp-param-"
 
-
-class _Missing:
-    """Sentinel distinguishing an absent argument from one explicitly set to null."""
-
-    def __repr__(self) -> str:
-        """Return a readable placeholder for debugging output."""
-        return "<missing>"
+type JsonValue = str | int | float | bool | list[Any] | dict[str, Any] | None
 
 
-MISSING: Final = _Missing()
+@dataclass(frozen=True)
+class MalformedHeaderValue:
+    """The Base64 sentinel is present but its payload is not valid Base64-encoded UTF-8."""
+
+    type: Literal["malformed_header_value"] = "malformed_header_value"
 
 
-def decode_header_value(value: str) -> str | None:
+@dataclass(frozen=True)
+class ArgumentAbsent:
+    """The property path does not exist in the tool arguments."""
+
+    type: Literal["argument_absent"] = "argument_absent"
+
+
+@dataclass(frozen=True)
+class ArgumentPresent:
+    """The property path exists. Its value may still be an explicit null."""
+
+    value: JsonValue
+    type: Literal["argument_present"] = "argument_present"
+
+
+def decode_header_value(value: str) -> str | MalformedHeaderValue:
     """Unwrap the Base64 sentinel format, or return the value unchanged.
 
-    Returns ``None`` when the sentinel is present but its payload is not valid
-    Base64-encoded UTF-8, which the caller reports as a header mismatch.
+    Only the canonical encoding is accepted. Base64 leaves unused bits in the last
+    character before padding, so ``dXM=`` and ``dXN=`` both decode to ``us``; accepting
+    both would give one value several header spellings, and an intermediary keyed on
+    the raw header would then see distinct values where the server sees one.
     """
     if not (
         len(value) >= len(BASE64_PREFIX) + len(BASE64_SUFFIX)
@@ -42,9 +58,13 @@ def decode_header_value(value: str) -> str | None:
         return value
     payload = value[len(BASE64_PREFIX) : -len(BASE64_SUFFIX)]
     try:
-        return base64.b64decode(payload, validate=True).decode("utf-8")
+        raw = base64.b64decode(payload, validate=True)
+        decoded = raw.decode("utf-8")
     except (binascii.Error, UnicodeDecodeError, ValueError):
-        return None
+        return MalformedHeaderValue()
+    if base64.b64encode(raw).decode("ascii") != payload:
+        return MalformedHeaderValue()
+    return decoded
 
 
 def is_valid_header_value(value: str) -> bool:
@@ -100,17 +120,28 @@ def collect_header_params(schema: Mapping[str, Any]) -> dict[str, tuple[str, ...
     return found
 
 
-def extract_argument(arguments: Mapping[str, Any], path: tuple[str, ...]) -> Any:  # noqa: ANN401
-    """Read the value at an exact property path, or ``MISSING`` if absent."""
+def extract_argument(
+    arguments: Mapping[str, JsonValue],
+    path: tuple[str, ...],
+) -> ArgumentAbsent | ArgumentPresent:
+    """Read the value at an exact property path."""
     current: Any = arguments
     for key in path:
         if not isinstance(current, Mapping) or key not in current:
-            return MISSING
+            return ArgumentAbsent()
         current = current[key]
-    return current
+    return ArgumentPresent(current)
 
 
-def values_match(header_value: str, body_value: object) -> bool:
+def _render_number(value: float) -> str | None:
+    """Return the JSON spelling, or None when the number has no JSON representation."""
+    try:
+        return json.dumps(value, allow_nan=False)
+    except ValueError:
+        return None
+
+
+def values_match(header_value: str, body_value: JsonValue) -> bool:
     """Compare a decoded header value against the value carried in the body.
 
     The comparison is textual, against the value as JSON writes it. Coercing both
@@ -120,14 +151,14 @@ def values_match(header_value: str, body_value: object) -> bool:
     than the server acts on. Byte agreement is the property that mirroring exists to
     guarantee, so byte agreement is what gets checked.
     """
-    if isinstance(body_value, bool):
-        return header_value == ("true" if body_value else "false")
-    if isinstance(body_value, int | float):
-        try:
-            return header_value == json.dumps(body_value, allow_nan=False)
-        except ValueError:
-            # Out-of-range floats (nan, inf) have no JSON rendering to agree on.
+    match body_value:
+        case bool():
+            return header_value == ("true" if body_value else "false")
+        case int() | float():
+            return header_value == _render_number(body_value)
+        case str():
+            return header_value == body_value
+        case None | list() | dict():
             return False
-    if isinstance(body_value, str):
-        return header_value == body_value
-    return False
+        case _ as unreachable:
+            assert_never(unreachable)

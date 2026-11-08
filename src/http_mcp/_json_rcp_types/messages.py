@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationInfo, field_validator
+from pydantic import BaseModel, StrictInt, StrictStr
 
 from http_mcp._json_rcp_types.errors import Error  # noqa: TC001
 
 
 class JSONRPCMessage(BaseModel):
     jsonrpc: Literal["2.0"]
-    id: int | str | None = None  # Errors and notifications has no id
+    # Errors and notifications have no id. Strict, because lax validation would turn
+    # `true` into 1 and `1.0` into 1, answering a request under an id it never sent.
+    id: StrictInt | StrictStr | None = None
 
 
 class JSONRPCRequest(JSONRPCMessage):
@@ -21,23 +23,6 @@ class JSONRPCRequest(JSONRPCMessage):
         "server/discover",
     ]
     params: dict[str, Any] | BaseModel | None = None
-
-
-class JSONRPCResponse(JSONRPCMessage):
-    result: BaseModel | None = None
-    error: Error | None = None
-
-    @field_validator("error")
-    @classmethod
-    def validate_error(cls, value: Error | None, info: ValidationInfo) -> Error | None:
-        result = info.data.get("result")
-        if value is not None and result is not None:
-            message = "result and error cannot be set at the same time"
-            raise ValueError(message)
-        if value is None and result is None:
-            message = "either result or error must be set"
-            raise ValueError(message)
-        return value
 
 
 class JSONRPCError(JSONRPCMessage):

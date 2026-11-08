@@ -4,7 +4,13 @@ from pydantic import BaseModel, ConfigDict
 
 
 class TokenInfo(BaseModel):
-    """Information extracted from a validated access token."""
+    """Information extracted from a validated access token.
+
+    ``OAuthAuthenticationBackend`` enforces two of these fields itself: a token whose
+    ``expires_at`` (seconds since the epoch) has passed is rejected, and so is one whose
+    ``audience`` is set and does not name the protected resource. Leave ``audience``
+    unset when the token carries no audience the resource URI can be compared with.
+    """
 
     model_config = ConfigDict(frozen=True)
 

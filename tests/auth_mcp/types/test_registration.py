@@ -161,3 +161,63 @@ def test_client_registration_response_is_frozen() -> None:
     )
     with pytest.raises(ValidationError):
         response.client_id = "other"
+
+
+# ---------------------------------------------------------------------------
+# Registration metadata accepts only what this package serves
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "grant_types",
+    [("implicit",), ("password",), ("client_credentials",), ("authorization_code", "password")],
+)
+def test_unsupported_grant_types_are_rejected(grant_types: tuple[str, ...]) -> None:
+    with pytest.raises(ValidationError):
+        ClientRegistrationRequest.model_validate(
+            {"redirect_uris": ["https://example.com/cb"], "grant_types": grant_types},
+        )
+
+
+@pytest.mark.parametrize("response_types", [("token",), ("id_token token",), ("code", "token")])
+def test_unsupported_response_types_are_rejected(response_types: tuple[str, ...]) -> None:
+    with pytest.raises(ValidationError):
+        ClientRegistrationRequest.model_validate(
+            {"redirect_uris": ["https://example.com/cb"], "response_types": response_types},
+        )
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["private_key_jwt\r\nX-Injected: 1", "tls_client_auth", "None", ""],
+)
+def test_unknown_token_endpoint_auth_method_is_rejected(method: str) -> None:
+    with pytest.raises(ValidationError):
+        ClientRegistrationRequest.model_validate(
+            {"redirect_uris": ["https://example.com/cb"], "token_endpoint_auth_method": method},
+        )
+
+
+@pytest.mark.parametrize(
+    "client_name",
+    [
+        "a" * 257,
+        "Good\u202eemaN",  # right-to-left override
+        "Line\nbreak",
+        "Nul\x00",
+        "Sep\u2028arator",
+    ],
+)
+def test_unsafe_client_name_is_rejected(client_name: str) -> None:
+    with pytest.raises(ValidationError):
+        ClientRegistrationRequest.model_validate(
+            {"redirect_uris": ["https://example.com/cb"], "client_name": client_name},
+        )
+
+
+@pytest.mark.parametrize("client_name", ["My MCP Client", "Cliente Ñandú 客户端", "a" * 256])
+def test_ordinary_client_names_are_accepted(client_name: str) -> None:
+    request = ClientRegistrationRequest.model_validate(
+        {"redirect_uris": ["https://example.com/cb"], "client_name": client_name},
+    )
+    assert request.client_name == client_name

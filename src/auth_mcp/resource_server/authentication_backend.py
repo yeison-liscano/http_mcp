@@ -1,5 +1,9 @@
 import logging
 import re
+import time
+from dataclasses import dataclass
+from typing import Literal, assert_never
+from urllib.parse import urlsplit
 
 from starlette.authentication import (
     AuthCredentials,
@@ -11,7 +15,7 @@ from starlette.authentication import (
 )
 from starlette.requests import HTTPConnection
 
-from auth_mcp.resource_server.token_validator import TokenValidator
+from auth_mcp.resource_server.token_validator import TokenInfo, TokenValidator
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +32,30 @@ _MAX_TOKEN_LENGTH = 2048
 _BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9\-._~+/]+=*\Z")
 
 
+def _canonical_resource(uri: str) -> tuple[str, str, str, str] | None:
+    """Return the parts of a resource URI that identify it, or None if it does not parse.
+
+    Scheme and host compare case-insensitively and a trailing slash is not significant,
+    so `https://MCP.example.com/` and `https://mcp.example.com` name one resource.
+    """
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return None
+    return (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), parts.query)
+
+
+def _is_for_resource(audience: str, resource_uri: str) -> bool:
+    canonical = _canonical_resource(audience)
+    return canonical is not None and canonical == _canonical_resource(resource_uri)
+
+
+@dataclass(frozen=True)
+class _CredentialsRejected:
+    reason: str
+    type: Literal["credentials_rejected"] = "credentials_rejected"
+
+
 class OAuthAuthenticationBackend(AuthenticationBackend):
     """Starlette AuthenticationBackend that validates OAuth 2.1 Bearer tokens.
 
@@ -38,6 +66,11 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
     When ``require_authentication`` is True (default), raises ``AuthenticationError``
     for missing or invalid tokens, causing Starlette's middleware to return 401.
     When False, unauthenticated requests are allowed through with empty credentials.
+
+    Whatever the validator checked, the backend also refuses a token whose
+    ``expires_at`` has passed, or whose ``audience`` is set and names a resource other
+    than ``resource_uri`` (RFC 8707): a validator that forgot either check would
+    otherwise accept a stale token, or one issued for another server.
     """
 
     def __init__(
@@ -52,24 +85,32 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
         self._require_authentication = require_authentication
 
     async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, BaseUser]:
-        auth_header = conn.headers.get("Authorization")
+        match await self._verify_credentials(conn.headers.get("Authorization")):
+            case TokenInfo() as token_info:
+                return AuthCredentials(list(token_info.scopes)), SimpleUser(token_info.subject)
+            case _CredentialsRejected(reason=reason):
+                if self._require_authentication:
+                    # Raising is how Starlette's backend contract rejects a request.
+                    raise AuthenticationError(reason)
+                return AuthCredentials(), UnauthenticatedUser()
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    async def _verify_credentials(
+        self,
+        auth_header: str | None,
+    ) -> TokenInfo | _CredentialsRejected:
         if not auth_header:
-            if self._require_authentication:
-                raise AuthenticationError(_AUTH_REQUIRED_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_AUTH_REQUIRED_MSG)
 
         parts = auth_header.split(" ", maxsplit=1)
         if len(parts) != 2 or parts[0].lower() != "bearer":  # noqa: PLR2004
-            if self._require_authentication:
-                raise AuthenticationError(_INVALID_SCHEME_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_INVALID_SCHEME_MSG)
 
         token = parts[1]
         if len(token) > _MAX_TOKEN_LENGTH or not _BEARER_TOKEN_PATTERN.match(token):
             LOGGER.debug("Malformed or oversized bearer token rejected")
-            if self._require_authentication:
-                raise AuthenticationError(_MALFORMED_TOKEN_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_MALFORMED_TOKEN_MSG)
 
         try:
             token_info = await self._token_validator.validate_token(token, self._resource_uri)
@@ -78,8 +119,19 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
             token_info = None
         if token_info is None:
             LOGGER.debug("Token validation failed")
-            if self._require_authentication:
-                raise AuthenticationError(_INVALID_TOKEN_MSG)
-            return AuthCredentials(), UnauthenticatedUser()
+            return _CredentialsRejected(_INVALID_TOKEN_MSG)
 
-        return AuthCredentials(list(token_info.scopes)), SimpleUser(token_info.subject)
+        return self._check_validity(token_info)
+
+    def _check_validity(self, token_info: TokenInfo) -> TokenInfo | _CredentialsRejected:
+        """Refuse a token the validator accepted that is expired or meant for elsewhere."""
+        if token_info.expires_at is not None and token_info.expires_at <= time.time():
+            LOGGER.debug("Expired token rejected")
+            return _CredentialsRejected(_INVALID_TOKEN_MSG)
+        if token_info.audience is not None and not _is_for_resource(
+            token_info.audience,
+            self._resource_uri,
+        ):
+            LOGGER.debug("Token issued for another resource rejected")
+            return _CredentialsRejected(_INVALID_TOKEN_MSG)
+        return token_info

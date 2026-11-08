@@ -552,6 +552,17 @@ def test_param_headers_matching_the_body_are_accepted() -> None:
     assert response.json()["result"]["structuredContent"] == {"executed": "us-west1:SELECT 1"}
 
 
+def test_number_too_large_for_a_float_is_a_header_mismatch() -> None:
+    """Comparing it must not crash: the value comes straight from an untrusted body."""
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": 10**400, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "1e400"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
 def test_param_header_mismatching_the_body_is_rejected() -> None:
     response = call_execute_sql(
         {"region": "us-west1", "replicas": 3, "query": "SELECT 1"},
@@ -580,6 +591,54 @@ def test_param_header_sent_without_the_argument_is_rejected() -> None:
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert "has no value in the body" in response.json()["error"]["message"]
+
+
+def test_param_header_sent_for_an_explicit_null_is_rejected() -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": None, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1", "Mcp-Param-Replicas": "3"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+
+
+def test_argument_absent_from_both_header_and_body_is_accepted() -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+
+
+def test_explicit_null_without_a_header_passes_the_header_check() -> None:
+    """Validating the argument is the tool's job, which reports it as invalid params."""
+    response = call_execute_sql(
+        {"region": "us-west1", "replicas": None, "query": "SELECT 1"},
+        **{"Mcp-Param-Region": "us-west1"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+
+
+@pytest.mark.parametrize(
+    "header_value",
+    [
+        pytest.param("=?base64?not!valid!?=", id="malformed-sentinel"),
+        pytest.param("bad\x7fvalue", id="outside-the-field-value-set"),
+    ],
+)
+def test_param_header_with_an_unusable_value_is_rejected(header_value: str) -> None:
+    response = call_execute_sql(
+        {"region": "us-west1", "query": "SELECT 1"},
+        **{"Mcp-Param-Region": header_value},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert "not a valid header value" in response.json()["error"]["message"]
 
 
 def test_integer_param_headers_compare_textually() -> None:
@@ -649,8 +708,35 @@ def _post_with_origin(server: MCPServer, origin: str | None) -> Any:  # noqa: AN
     )
 
 
-def test_origin_is_unchecked_when_no_allowlist_is_configured() -> None:
-    assert _post_with_origin(DUMMY_SERVER, "https://evil.example").status_code == HTTPStatus.OK
+@pytest.mark.parametrize(
+    "origin",
+    ["http://localhost:3000", "http://127.0.0.1:8000", "http://[::1]:8000", "https://localhost"],
+)
+def test_loopback_origin_is_served_when_no_allowlist_is_configured(origin: str) -> None:
+    assert _post_with_origin(DUMMY_SERVER, origin).status_code == HTTPStatus.OK
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        # A DNS-rebinding page keeps its own origin after its name resolves to 127.0.0.1.
+        "https://evil.example",
+        "http://localhost.evil.example",
+        "http://127.0.0.1.nip.io",
+        "null",
+        "file://",
+        "http://[::1",
+    ],
+)
+def test_non_loopback_origin_is_forbidden_when_no_allowlist_is_configured(origin: str) -> None:
+    response = _post_with_origin(DUMMY_SERVER, origin)
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json()["error"]["message"] == "Origin not allowed"
+
+
+def test_absent_origin_is_served_when_no_allowlist_is_configured() -> None:
+    assert _post_with_origin(DUMMY_SERVER, None).status_code == HTTPStatus.OK
 
 
 def test_disallowed_origin_is_forbidden() -> None:
@@ -745,3 +831,87 @@ def test_invalid_cursor_is_still_rejected_under_the_modern_era() -> None:
     body = response.json()
     assert "result" not in body
     assert body["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+
+
+# ---------------------------------------------------------------------------
+# Repeated mirrored headers
+# ---------------------------------------------------------------------------
+
+
+def _call_with_header_lines(*extra: tuple[str, str]) -> Any:  # noqa: ANN401
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "execute_sql",
+            "arguments": {"region": "us", "query": "SELECT 1"},
+            "_meta": meta(),
+        },
+    }
+    lines = [
+        ("Content-Type", "application/json"),
+        ("MCP-Protocol-Version", V),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "execute_sql"),
+        ("Mcp-Param-Region", "us"),
+        *extra,
+    ]
+    return TestClient(mount_mcp_server(HEADER_PARAM_SERVER)).post(
+        "/mcp",
+        content=json.dumps(body),
+        headers=lines,
+    )
+
+
+def test_single_copies_of_the_mirrored_headers_are_served() -> None:
+    assert _call_with_header_lines().status_code == HTTPStatus.OK
+
+
+@pytest.mark.parametrize(
+    ("extra", "label"),
+    [
+        (("Mcp-Param-Region", "eu"), "Mcp-Param-region"),
+        (("Mcp-Param-Region", "us"), "Mcp-Param-region"),
+        (("Mcp-Method", "tools/list"), "Mcp-Method"),
+        (("Mcp-Name", "admin_tool"), "Mcp-Name"),
+        (("MCP-Protocol-Version", "2025-06-18"), "MCP-Protocol-Version"),
+    ],
+)
+def test_repeated_mirrored_header_is_a_header_mismatch(extra: tuple[str, str], label: str) -> None:
+    """The first copy matching the body is not enough.
+
+    Intermediaries join repeated lines with ", " or keep the last one, so a proxy would
+    route on a different value than the one the server checked and acted on.
+    """
+    response = _call_with_header_lines(extra)
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    error = response.json()["error"]
+    assert error["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert error["message"] == f"Header mismatch: {label} header must not be repeated"
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC ids are not coerced
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("message_id", [True, False, 1.0])
+def test_id_that_is_not_an_integer_or_string_is_refused(message_id: object) -> None:
+    """Lax validation turned `true` into 1, answering under an id the client never sent."""
+    response = client().post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": message_id,
+            "method": "tools/list",
+            "params": {"_meta": meta()},
+        },
+        headers=headers("tools/list"),
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = response.json()
+    assert "result" not in body
+    assert "id" not in body

@@ -3,7 +3,6 @@ from auth_mcp.exceptions import (
     DiscoveryError,
     InsufficientScopeError,
     PKCEError,
-    RegistrationError,
     TokenValidationError,
 )
 
@@ -32,11 +31,6 @@ def test_insufficient_scope_error() -> None:
 
 def test_discovery_error_is_auth_error() -> None:
     error = DiscoveryError("could not reach server")
-    assert isinstance(error, AuthError)
-
-
-def test_registration_error_is_auth_error() -> None:
-    error = RegistrationError("registration denied")
     assert isinstance(error, AuthError)
 
 
