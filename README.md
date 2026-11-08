@@ -156,7 +156,29 @@ of rules a request can select into.
 > implementations of the interface must update, while `MCPServer` users are
 > unaffected. Mirrored `Mcp-Param-*` values are compared textually rather than
 > numerically, so a header reading `3.0` for `"replicas": 3` now gets `-32020`.
-> Every `notifications/*` method returns 404, the revision defining none.
+> Notification handling was subsequently corrected as described below.
+
+Tool input schemas use Pydantic's validation aliases. Output schemas use
+serialization aliases and serialization mode, including computed fields. Tools
+can return object, array, scalar or null values through a Pydantic model;
+`structuredContent` and the JSON text fallback describe the same result.
+
+JSON-RPC requests require a non-null integer or string ID. Malformed envelopes
+report `-32600`, unknown methods report `-32601`, and invalid parameters report
+`-32602`. A message without an ID is a notification: it never invokes a request
+method or receives a JSON-RPC response. HTTP checks the mirrored headers before
+accepting it with an empty 202 response; header mismatches get an empty 400
+response. STDIO ignores unsupported notifications.
+
+List cursors must be strings issued by this server. Invalid or out-of-range
+offsets report `-32602`; tools support pagination, while prompts are returned in
+one page. Unexpected prompt crashes report `-32603` rather than a successful
+empty prompt. Explicit `PromptInvocationError` feedback retains its existing
+behavior.
+
+Empty tool or prompt registrations leave that capability unadvertised. Its list
+and invocation methods then return `-32601` (HTTP 404), matching discovery.
+Register at least one tool or prompt before using that feature's methods.
 
 > **Behaviour changes since 0.18.0.** These close weaknesses found by an attack
 > review of the transports and of `auth_mcp`:
@@ -492,7 +514,7 @@ TOOLS = (
 
 ### Tools with Error Handling
 
-Tools can optionally return error messages instead of raising exceptions:
+Tools can include structured feedback when an invocation fails:
 
 ```python
 from pydantic import BaseModel, Field
@@ -516,13 +538,43 @@ TOOLS = (
         func=risky_tool,
         inputs=RiskyToolInput,
         output=RiskyToolOutput,
-        return_error_message=True,  # Return ErrorMessage instead of raising
+        return_error_message=True,  # Include structured ErrorMessage data on failure
     ),
 )
 ```
 
-When `return_error_message=True`, the tool will return an `ErrorMessage` model
-with the error details instead of raising a `ToolInvocationError`.
+Both error modes contain exceptions at the invocation boundary and return
+`isError:true`. With `return_error_message=True`, the response additionally
+preserves `{"error_message": "..."}` in `structuredContent` and as JSON text
+content. Its output schema includes the `ErrorMessage` variant. Unexpected
+exception details remain hidden.
+
+Direct callers of `Tool.invoke` and custom `ServerInterface` implementations
+must handle `StructuredToolInvocationFailed` from `http_mcp.failures` for this
+mode. It carries the failure's `message`; the transport builds the structured
+data. This replaces the previous plain `ErrorMessage` success outcome.
+
+### Tool Annotations
+
+Supply hints explicitly with `ToolAnnotations`:
+
+```python
+from http_mcp.types import Tool, ToolAnnotations
+
+tool = Tool(
+    func=risky_tool,
+    inputs=RiskyToolInput,
+    output=RiskyToolOutput,
+    annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+)
+```
+
+Available fields are `title`, `read_only_hint`, `destructive_hint`,
+`idempotent_hint`, and `open_world_hint`. Unspecified safety hints are omitted;
+the annotation title defaults to the tool's generated title. The server no
+longer claims that every tool is non-destructive and idempotent.
+`Tool.annotations` is now a typed, immutable `ToolAnnotations` model rather than
+a mapping.
 
 ### Tools with Authorization Scopes
 
@@ -1140,11 +1192,15 @@ The `Tool` class is used to define tools that can be invoked by clients.
   - Accept no parameters
 - `inputs`: The Pydantic model class for input validation. Use `type(None)` or
   `NoArguments` for tools without inputs
-- `output`: The Pydantic model class for output validation
-- `return_error_message` (bool): If `True`, tool errors return `ErrorMessage`
-  instead of raising exceptions (default: `False`)
+- `output`: The Pydantic model class defining the output schema and
+  serialization
+- `return_error_message` (bool): If `True`, failed invocations include
+  structured `ErrorMessage` data while retaining `isError:true` (default:
+  `False`)
 - `scopes` (tuple[str, ...]): Required authentication scopes for accessing this
   tool (default: empty tuple)
+- `annotations` (`ToolAnnotations`): Explicit hints; unspecified safety hints
+  are omitted
 
 **Properties:**
 

@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from starlette.authentication import UnauthenticatedUser
+from starlette.authentication import AuthenticationError, UnauthenticatedUser
 from starlette.requests import HTTPConnection
 
 from auth_mcp.resource_server.authentication_backend import OAuthAuthenticationBackend
@@ -69,9 +69,8 @@ async def test_invalid_bearer_token() -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": "Bearer bad_token"})
-    credentials, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
-    assert len(credentials.scopes) == 0
+    with pytest.raises(AuthenticationError, match="Invalid or expired token"):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -95,8 +94,8 @@ async def test_non_bearer_scheme() -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": "Basic dXNlcjpwYXNz"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -107,8 +106,8 @@ async def test_malformed_authorization_header() -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": "InvalidHeader"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -166,8 +165,8 @@ async def test_rejects_oversized_token() -> None:
     )
     oversized = "A" * 3000
     conn = _make_connection({"Authorization": f"Bearer {oversized}"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -178,8 +177,8 @@ async def test_rejects_token_with_special_chars() -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": "Bearer tok\x00en"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -190,8 +189,8 @@ async def test_rejects_token_with_spaces() -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": "Bearer tok en"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -202,8 +201,8 @@ async def test_validator_exception_treated_as_failed_when_auth_not_required() ->
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": f"Bearer {_VALID_ACCESS_TOKEN}"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -242,8 +241,8 @@ async def test_rejects_token_with_trailing_newline(token: str) -> None:
         require_authentication=False,
     )
     conn = _make_connection({"Authorization": f"Bearer {token}"})
-    _, user = await backend.authenticate(conn)
-    assert isinstance(user, UnauthenticatedUser)
+    with pytest.raises(AuthenticationError):
+        await backend.authenticate(conn)
 
 
 @pytest.mark.asyncio
@@ -265,7 +264,8 @@ async def test_token_never_reaches_the_validator_when_malformed() -> None:
         resource_uri="https://mcp.example.com",
         require_authentication=False,
     )
-    await backend.authenticate(_make_connection({"Authorization": "Bearer abc123\n"}))
+    with pytest.raises(AuthenticationError, match="Malformed bearer token"):
+        await backend.authenticate(_make_connection({"Authorization": "Bearer abc123\n"}))
     assert seen == []
 
 
@@ -309,7 +309,8 @@ async def _authenticate(token_info: TokenInfo) -> bool:
     ids=["expired", "other-host", "other-path", "suffix-host", "unparsable"],
 )
 async def test_expired_or_misdirected_token_is_rejected(token_info: TokenInfo) -> None:
-    assert not await _authenticate(token_info)
+    with pytest.raises(AuthenticationError, match="Invalid or expired token"):
+        await _authenticate(token_info)
 
 
 @pytest.mark.asyncio

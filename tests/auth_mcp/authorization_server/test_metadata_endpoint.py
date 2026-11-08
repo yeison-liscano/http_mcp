@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from starlette.testclient import TestClient
 
 from auth_mcp.authorization_server.metadata_endpoint import AuthorizationServerMetadataEndpoint
@@ -27,10 +28,24 @@ def test_get_returns_metadata_json() -> None:
     response = client.get("/")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
-    assert data["issuer"] == "https://auth.example.com/"
+    assert data["issuer"] == "https://auth.example.com"
     assert data["authorization_endpoint"] == "https://auth.example.com/authorize"
     assert data["token_endpoint"] == "https://auth.example.com/token"  # noqa: S105
     assert data["scopes_supported"] == ["read", "write"]
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    ["https://auth.example.com", "https://AUTH.example.com:443/%7Eissuer"],
+)
+def test_metadata_endpoint_publishes_the_exact_issuer_string(issuer: str) -> None:
+    metadata = AuthorizationServerMetadata(
+        issuer=issuer,
+        authorization_endpoint="https://auth.example.com/authorize",
+        token_endpoint="https://auth.example.com/token",  # noqa: S106
+    )
+    response = TestClient(AuthorizationServerMetadataEndpoint(metadata)).get("/")
+    assert response.json()["issuer"] == issuer
 
 
 def test_get_content_type_is_json() -> None:

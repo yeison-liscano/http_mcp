@@ -12,6 +12,7 @@ from starlette.types import Receive, Scope, Send
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp._json_rcp_types.messages import (
     JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
 )
 from http_mcp._mcp_types.headers import (
@@ -27,7 +28,7 @@ from http_mcp._mcp_types.headers import (
     values_match,
 )
 from http_mcp._mcp_types.meta import META_PROTOCOL_VERSION
-from http_mcp._parsing import InvalidJson, InvalidModel, Parsed, parse_json, parse_model
+from http_mcp._parsing import InvalidJson, Parsed, parse_json
 from http_mcp._transport_base import (
     PROTOCOL_VERSION_HEADER,
     BaseTransport,
@@ -61,11 +62,6 @@ _SCOPE_TOKEN = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]+")
 # Methods whose subject is mirrored into `Mcp-Name`.
 _NAMED_METHODS = ("tools/call", "prompts/get")
 _MAX_ECHOED_VALUE = 100
-
-# Revision 2026-07-28 defines no notifications: `notifications/initialized` went away
-# with the `initialize` handshake. The set is empty on purpose rather than absent, so
-# that adding a notification is a deliberate edit here and everything else is refused.
-KNOWN_NOTIFICATIONS: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -336,25 +332,7 @@ class HTTPTransport(BaseTransport):
             )
             return
 
-        method = raw_message.get("method")
-        is_notification = (
-            isinstance(method, str)
-            and method.startswith("notifications/")
-            and raw_message.get("id") is None
-        )
-        if is_notification and method not in KNOWN_NOTIFICATIONS:
-            # Accepting any string under the prefix meant an unknown method could take
-            # a 202 without ever meeting the header check below.
-            LOGGER.error("Unknown notification method")
-            await self._send_error_response(
-                send,
-                ErrorResponseInfo(
-                    protocol_code=ErrorCode.METHOD_NOT_FOUND,
-                    http_status_code=HTTPStatus.NOT_FOUND,
-                    message=f"Method not supported: {_echo(method)}",
-                ),
-            )
-            return
+        parsed = self._parse_request(raw_message)
 
         # Every request carries the metadata envelope, so every request is checked.
         # There is no second dispatch path a caller could pick to skip this —
@@ -362,6 +340,9 @@ class HTTPTransport(BaseTransport):
         mismatch = self._validate_request_headers(raw_message, request)
         if mismatch is not None:
             LOGGER.error("Header validation failed: %s", mismatch.detail)
+            if isinstance(parsed, JSONRPCNotification):
+                await self._send_empty_response(send, HTTPStatus.BAD_REQUEST)
+                return
             await self._send_error_response(
                 send,
                 ErrorResponseInfo(
@@ -373,47 +354,37 @@ class HTTPTransport(BaseTransport):
             )
             return
 
-        if is_notification:
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": HTTPStatus.ACCEPTED.value,
-                    "headers": [*_SECURITY_HEADERS],
-                },
-            )
-
-            await send(
-                {
-                    "type": "http.response.body",
-                    "body": b"",
-                    "more_body": False,
-                },
-            )
-            return
-
-        match parse_model(JSONRPCRequest, raw_message):
-            case InvalidModel():
+        match parsed:
+            case JSONRPCNotification():
+                await self._send_empty_response(send, HTTPStatus.ACCEPTED)
+            case JSONRPCError() as error:
                 LOGGER.error("Error validating message")
-                is_invalid_method = raw_message.get("method", "") not in self.supported_methods
+                is_invalid_method = error.error.code == ErrorCode.METHOD_NOT_FOUND
                 await self._send_error_response(
                     send,
                     ErrorResponseInfo(
                         message_id=request_id(raw_message),
-                        protocol_code=(
-                            ErrorCode.METHOD_NOT_FOUND
-                            if is_invalid_method
-                            else ErrorCode.INVALID_PARAMS
-                        ),
+                        protocol_code=error.error.code,
                         http_status_code=(
                             HTTPStatus.NOT_FOUND if is_invalid_method else HTTPStatus.BAD_REQUEST
                         ),
-                        message="Error validating message request",
+                        message=error.error.message,
                     ),
                 )
-            case Parsed(value=request_message):
+            case JSONRPCRequest() as request_message:
                 await self._process_messages(request_message, send, request)
             case _ as unreachable:
                 assert_never(unreachable)
+
+    async def _send_empty_response(self, send: Send, status: HTTPStatus) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status.value,
+                "headers": [*_SECURITY_HEADERS],
+            },
+        )
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
 
     # ------------------------------------------------------------------
     # Request metadata headers

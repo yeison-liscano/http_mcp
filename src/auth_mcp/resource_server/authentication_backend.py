@@ -51,6 +51,11 @@ def _is_for_resource(audience: str, resource_uri: str) -> bool:
 
 
 @dataclass(frozen=True)
+class _CredentialsAbsent:
+    type: Literal["credentials_absent"] = "credentials_absent"
+
+
+@dataclass(frozen=True)
 class _CredentialsRejected:
     reason: str
     type: Literal["credentials_rejected"] = "credentials_rejected"
@@ -65,7 +70,8 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
 
     When ``require_authentication`` is True (default), raises ``AuthenticationError``
     for missing or invalid tokens, causing Starlette's middleware to return 401.
-    When False, unauthenticated requests are allowed through with empty credentials.
+    When False, requests without credentials are allowed through with empty credentials.
+    Presented invalid credentials are always rejected.
 
     Whatever the validator checked, the backend also refuses a token whose
     ``expires_at`` has passed, or whose ``audience`` is set and names a resource other
@@ -88,20 +94,22 @@ class OAuthAuthenticationBackend(AuthenticationBackend):
         match await self._verify_credentials(conn.headers.get("Authorization")):
             case TokenInfo() as token_info:
                 return AuthCredentials(list(token_info.scopes)), SimpleUser(token_info.subject)
-            case _CredentialsRejected(reason=reason):
+            case _CredentialsAbsent():
                 if self._require_authentication:
                     # Raising is how Starlette's backend contract rejects a request.
-                    raise AuthenticationError(reason)
+                    raise AuthenticationError(_AUTH_REQUIRED_MSG)
                 return AuthCredentials(), UnauthenticatedUser()
+            case _CredentialsRejected(reason=reason):
+                raise AuthenticationError(reason)
             case _ as unreachable:
                 assert_never(unreachable)
 
     async def _verify_credentials(
         self,
         auth_header: str | None,
-    ) -> TokenInfo | _CredentialsRejected:
-        if not auth_header:
-            return _CredentialsRejected(_AUTH_REQUIRED_MSG)
+    ) -> TokenInfo | _CredentialsAbsent | _CredentialsRejected:
+        if auth_header is None:
+            return _CredentialsAbsent()
 
         parts = auth_header.split(" ", maxsplit=1)
         if len(parts) != 2 or parts[0].lower() != "bearer":  # noqa: PLR2004

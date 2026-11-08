@@ -1,16 +1,22 @@
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Coroutine, Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Coroutine
+from dataclasses import dataclass, field
 from typing import Any, assert_never, cast
 
 from pydantic import BaseModel
 from starlette.requests import Request
 
+from http_mcp._mcp_types.tools import ToolAnnotations
 from http_mcp._parsing import InvalidModel, Parsed, parse_model
 from http_mcp.exceptions import ServerError, ToolInvocationError
-from http_mcp.failures import InvalidArguments, ToolInvocationFailed, tool_failure_message
+from http_mcp.failures import (
+    InvalidArguments,
+    StructuredToolInvocationFailed,
+    ToolInvocationFailed,
+    tool_failure_message,
+)
 from http_mcp.types.models import Arguments, ErrorMessage
 from http_mcp.types.utils import generate_union_schema
 
@@ -33,11 +39,13 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         output: The Pydantic model class that defines the output schema.
             This model is used to generate the tool's output schema.
 
-        return_error_message: If True, a failed invocation produces an ErrorMessage as the output
-        of the tool. If False (default), it is reported as a result with `isError` set.
+        return_error_message: If True, a failed invocation includes ErrorMessage structured
+        data. Both modes report failures with `isError` set.
 
         scopes: Works the same as starlette's scope. Is used to exposed tools given authorization
         scopes.
+
+        annotations: Explicit tool hints. Unspecified safety hints are omitted.
 
     """
 
@@ -55,16 +63,7 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     output: type[TOutput]
     return_error_message: bool = False
     scopes: tuple[str, ...] = ()
-
-    @property
-    def annotations(self) -> Mapping[str, str | bool]:
-        return {
-            "title": self.title,
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        }
+    annotations: ToolAnnotations = field(default_factory=ToolAnnotations)
 
     @property
     def name(self) -> str:
@@ -85,9 +84,9 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
             class EmptyInput(BaseModel):
                 pass
 
-            schema = EmptyInput.model_json_schema(by_alias=False)
+            schema = EmptyInput.model_json_schema(by_alias=True, mode="validation")
         else:
-            schema = self.inputs.model_json_schema(by_alias=False)
+            schema = self.inputs.model_json_schema(by_alias=True, mode="validation")
         schema["title"] = self.name + "Arguments"
         return schema
 
@@ -96,7 +95,7 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         if self.return_error_message:
             schema = generate_union_schema(self.output, ErrorMessage)
         else:
-            schema = self.output.model_json_schema(by_alias=False)
+            schema = self.output.model_json_schema(by_alias=True, mode="serialization")
         schema["title"] = self.name + "Output"
         return schema
 
@@ -124,7 +123,7 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     async def _contain(
         self,
         run: Coroutine[Any, Any, TOutput],
-    ) -> TOutput | ErrorMessage | ToolInvocationFailed:
+    ) -> TOutput | StructuredToolInvocationFailed | ToolInvocationFailed:
         """Run the tool function, turning anything it raises into a value.
 
         Tool functions are user code and may raise anything, so this is the boundary
@@ -133,25 +132,26 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         try:
             return await run
         except ToolInvocationError as e:
-            if self.return_error_message:
-                return ErrorMessage(error_message=e.message)
             LOGGER.exception("Error calling tool %s", self.name)
-            return ToolInvocationFailed(e.message)
+            return self._failure(e.message)
         except ServerError as e:
             LOGGER.exception("Error calling tool %s", self.name)
-            return ToolInvocationFailed(e.message)
+            return self._failure(e.message)
         except Exception:
             LOGGER.exception("Error calling tool %s", self.name)
             message = tool_failure_message(self.name, "Unknown error")
-            if self.return_error_message:
-                return ErrorMessage(error_message=message)
-            return ToolInvocationFailed(message)
+            return self._failure(message)
+
+    def _failure(self, message: str) -> StructuredToolInvocationFailed | ToolInvocationFailed:
+        if self.return_error_message:
+            return StructuredToolInvocationFailed(message)
+        return ToolInvocationFailed(message)
 
     async def invoke(
         self,
         args: dict,
         request: Request,
-    ) -> TOutput | ErrorMessage | InvalidArguments | ToolInvocationFailed:
+    ) -> TOutput | StructuredToolInvocationFailed | InvalidArguments | ToolInvocationFailed:
         # Handle functions without arguments
         if issubclass(self.inputs, type(None)):
             return await self._contain(self._run_without_arguments())
@@ -172,5 +172,8 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
             "description": self.description,
             "inputSchema": self.input_schema,
             "outputSchema": self.output_schema,
-            "annotations": self.annotations,
+            "annotations": {
+                "title": self.title,
+                **self.annotations.model_dump(by_alias=True, exclude_none=True),
+            },
         }

@@ -12,12 +12,18 @@ from http_mcp.failures import (
     PromptInvocationFailed,
     PromptNotFound,
     PromptServerFailure,
+    StructuredToolInvocationFailed,
     ToolInvocationFailed,
     ToolNotFound,
 )
 
 type ToolCallOutcome = (
-    BaseModel | ToolNotFound | InsufficientScope | InvalidArguments | ToolInvocationFailed
+    BaseModel
+    | ToolNotFound
+    | InsufficientScope
+    | InvalidArguments
+    | ToolInvocationFailed
+    | StructuredToolInvocationFailed
 )
 type PromptGetOutcome = (
     RenderedPrompt

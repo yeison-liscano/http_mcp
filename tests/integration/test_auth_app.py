@@ -22,7 +22,7 @@ from tests.fixtures.tools import TOOLS
 
 _VALID_TOKEN = "test_oauth_token"  # noqa: S105
 _RESOURCE_URI = AnyHttpUrl("https://mcp.example.com")
-_AUTH_SERVER = AnyHttpUrl("https://auth.example.com")
+_AUTH_SERVER = "https://auth.example.com"
 
 
 class _MockTokenValidator(TokenValidator):

@@ -5,7 +5,6 @@ import pytest
 from starlette.requests import Request
 from starlette.types import Message
 
-from http_mcp import _transport_http
 from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp._mcp_types.versions import LATEST_PROTOCOL_VERSION
 from http_mcp._transport_http import MAXIMUM_MESSAGE_SIZE
@@ -82,13 +81,8 @@ def test_parse_error() -> None:
     }
 
 
-def test_unknown_notification_is_not_found() -> None:
-    """Revision 2026-07-28 defines no notifications, so none are accepted.
-
-    `notifications/initialized` went away with the `initialize` handshake. Taking a
-    202 for any string under the prefix also let a notification skip the mirrored
-    header check that every other request has to pass.
-    """
+def test_unknown_notification_is_ignored_without_a_jsonrpc_response() -> None:
+    """Unknown notifications are ignored after mirrored-header validation."""
     client = MCPTestClient(DUMMY_SERVER.app)
 
     for method in ("notifications/initialized", "notifications/made/up/xyz"):
@@ -97,8 +91,8 @@ def test_unknown_notification_is_not_found() -> None:
             json={"jsonrpc": "2.0", "method": method},
             headers={"Content-Type": "application/json"},
         )
-        assert response.status_code == HTTPStatus.NOT_FOUND
-        assert response.json()["error"]["code"] == ErrorCode.METHOD_NOT_FOUND.value
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert response.content == b""
 
 
 def test_retired_method_is_not_found() -> None:
@@ -115,7 +109,7 @@ def test_retired_method_is_not_found() -> None:
         "id": "1",
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
-            "message": "Error validating message request",
+            "message": "Method not supported",
         },
     }
 
@@ -172,7 +166,7 @@ def test_notification_method_with_id_returns_method_not_found() -> None:
         "id": 6,
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
-            "message": "Error validating message request",
+            "message": "Method not supported",
         },
     }
 
@@ -335,10 +329,10 @@ async def test_non_ascii_digits_in_content_length_do_not_crash(declared: bytes) 
 # ---------------------------------------------------------------------------
 
 
-def _tools_list(client: MCPTestClient, **headers: str) -> int:
+def _discover(client: MCPTestClient, **headers: str) -> int:
     response = client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "server/discover"},
         headers=headers or None,
     )
     return response.status_code
@@ -349,9 +343,9 @@ def test_missing_origin_is_allowed_by_default() -> None:
     server = MCPServer("test", "1.0.0", allowed_origins=("https://app.example",))
     client = MCPTestClient(server.app)
 
-    assert _tools_list(client) == HTTPStatus.OK
-    assert _tools_list(client, Origin="https://app.example") == HTTPStatus.OK
-    assert _tools_list(client, Origin="https://evil.example") == HTTPStatus.FORBIDDEN
+    assert _discover(client) == HTTPStatus.OK
+    assert _discover(client, Origin="https://app.example") == HTTPStatus.OK
+    assert _discover(client, Origin="https://evil.example") == HTTPStatus.FORBIDDEN
 
 
 def test_require_origin_refuses_a_request_with_no_origin() -> None:
@@ -364,16 +358,16 @@ def test_require_origin_refuses_a_request_with_no_origin() -> None:
     )
     client = MCPTestClient(server.app)
 
-    assert _tools_list(client) == HTTPStatus.FORBIDDEN
-    assert _tools_list(client, Origin="https://app.example") == HTTPStatus.OK
-    assert _tools_list(client, Origin="https://evil.example") == HTTPStatus.FORBIDDEN
+    assert _discover(client) == HTTPStatus.FORBIDDEN
+    assert _discover(client, Origin="https://app.example") == HTTPStatus.OK
+    assert _discover(client, Origin="https://evil.example") == HTTPStatus.FORBIDDEN
 
 
 def test_require_origin_does_nothing_without_an_allowlist() -> None:
     server = MCPServer("test", "1.0.0", require_origin=True)
     client = MCPTestClient(server.app)
 
-    assert _tools_list(client) == HTTPStatus.OK
+    assert _discover(client) == HTTPStatus.OK
 
 
 # ---------------------------------------------------------------------------
@@ -381,17 +375,12 @@ def test_require_origin_does_nothing_without_an_allowlist() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_known_notification_is_accepted_and_still_header_checked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_notification_is_accepted_and_still_header_checked() -> None:
     """The 202 sits below header validation, not above it.
 
-    Revision 2026-07-28 defines no notifications, so this pins the behaviour a future
-    one would get: accepted, but only after the same header check every other request
-    passes. Short-circuiting to 202 first was the one way around that check.
+    Notifications never receive JSON-RPC replies, including when HTTP rejects them.
     """
     method = "notifications/progress"
-    monkeypatch.setattr(_transport_http, "KNOWN_NOTIFICATIONS", frozenset({method}))
     client = MCPTestClient(DUMMY_SERVER.app)
 
     accepted = client.post(
@@ -409,7 +398,7 @@ def test_a_known_notification_is_accepted_and_still_header_checked(
         raw=False,
     )
     assert mismatched.status_code == HTTPStatus.BAD_REQUEST
-    assert mismatched.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert mismatched.content == b""
 
     missing_header = client.post(
         "/mcp",
@@ -421,7 +410,7 @@ def test_a_known_notification_is_accepted_and_still_header_checked(
         raw=True,
     )
     assert missing_header.status_code == HTTPStatus.BAD_REQUEST
-    assert missing_header.json()["error"]["code"] == ErrorCode.HEADER_MISMATCH.value
+    assert missing_header.content == b""
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +504,7 @@ def test_invalid_id_is_not_echoed_when_reporting_an_invalid_request(message_id: 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     body = response.json()
     assert "id" not in body
-    assert body["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+    assert body["error"]["code"] == ErrorCode.INVALID_REQUEST.value
 
 
 @pytest.mark.parametrize("message_id", [7, "abc"])

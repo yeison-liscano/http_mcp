@@ -270,10 +270,6 @@ def test_server_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Simple Server Tool",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
             ],

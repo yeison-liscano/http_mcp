@@ -8,6 +8,7 @@ from typing import Any, assert_never, cast
 from pydantic import BaseModel
 from starlette.requests import Request
 
+from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp._mcp_types.prompts import (
     PromptArgument,
     PromptMessage,
@@ -121,7 +122,10 @@ class Prompt[TArguments: BaseModel | None]:
             return PromptServerFailure(e.error.code, e.message)
         except Exception:
             LOGGER.exception("Error getting prompt %s", self.name)
-            return PromptInvocationFailed(prompt_failure_message(self.name, "Unknown error"))
+            return PromptServerFailure(
+                ErrorCode.INTERNAL_ERROR,
+                prompt_failure_message(self.name, "Unknown error"),
+            )
         return RenderedPrompt(description=self.description, messages=messages)
 
     async def invoke(

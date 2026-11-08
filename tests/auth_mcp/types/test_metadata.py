@@ -57,6 +57,96 @@ def test_protected_resource_metadata_multiple_authorization_servers() -> None:
     assert len(metadata.authorization_servers) == _EXPECTED_MULTI_SERVER_COUNT
 
 
+def test_protected_resource_metadata_rejects_empty_authorization_servers() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        ProtectedResourceMetadata(resource="https://mcp.example.com", authorization_servers=())
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "https://auth.example.com",
+        "https://auth.example.com/",
+        "https://AUTH.example.com:443/%7Eissuer",
+        "https://auth.example.com/a/../issuer",
+    ],
+)
+def test_authorization_metadata_preserves_exact_issuer_identity(issuer: str) -> None:
+    resource = ProtectedResourceMetadata(
+        resource="https://mcp.example.com",
+        authorization_servers=(issuer,),
+    )
+    server = AuthorizationServerMetadata(
+        issuer=issuer,
+        authorization_endpoint=_AS_AUTHORIZE,
+        token_endpoint=_AS_TOKEN,
+    )
+    assert resource.model_dump(mode="json")["authorization_servers"] == [issuer]
+    assert server.model_dump(mode="json")["issuer"] == issuer
+    assert resource.authorization_servers == (issuer,)
+    assert server.issuer == issuer
+    assert (
+        AuthorizationServerMetadata.model_validate_json(server.model_dump_json()).issuer == issuer
+    )
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "http://auth.example.com",
+        "not-a-url",
+        "https:auth.example.com",
+        " https://auth.example.com",
+        "https://auth.example.com\n",
+        "https://auth.example.com?query",
+        "https://auth.example.com#fragment",
+        "https://user:password@auth.example.com",
+        "https://auth.example.com\\issuer",
+    ],
+)
+def test_issuer_validation_rejects_invalid_identity_syntax(issuer: str) -> None:
+    with pytest.raises(ValidationError):
+        ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=(issuer,),
+        )
+    with pytest.raises(ValidationError):
+        AuthorizationServerMetadata(
+            issuer=issuer,
+            authorization_endpoint=_AS_AUTHORIZE,
+            token_endpoint=_AS_TOKEN,
+        )
+
+
+@pytest.mark.parametrize("supported", [True, False])
+def test_authorization_server_metadata_retains_capability_flags(*, supported: bool) -> None:
+    server = AuthorizationServerMetadata(
+        issuer=_AS_ISSUER,
+        authorization_endpoint=_AS_AUTHORIZE,
+        token_endpoint=_AS_TOKEN,
+        authorization_response_iss_parameter_supported=supported,
+        client_id_metadata_document_supported=supported,
+    )
+    data = server.model_dump(mode="json", exclude_none=True)
+    assert data["authorization_response_iss_parameter_supported"] is supported
+    assert data["client_id_metadata_document_supported"] is supported
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["authorization_endpoint", "token_endpoint", "registration_endpoint", "revocation_endpoint"],
+)
+def test_authorization_server_metadata_rejects_http_endpoints(endpoint: str) -> None:
+    data = {
+        "issuer": _AS_ISSUER,
+        "authorization_endpoint": _AS_AUTHORIZE,
+        "token_endpoint": _AS_TOKEN,
+        endpoint: "http://auth.example.com/endpoint",
+    }
+    with pytest.raises(ValidationError, match="endpoints must use HTTPS"):
+        AuthorizationServerMetadata.model_validate(data)
+
+
 def test_protected_resource_metadata_rejects_invalid_uri() -> None:
     with pytest.raises(ValidationError):
         ProtectedResourceMetadata(
@@ -88,7 +178,7 @@ def test_authorization_server_metadata_required_fields() -> None:
         authorization_endpoint=_AS_AUTHORIZE,
         token_endpoint=_AS_TOKEN,
     )
-    assert str(metadata.issuer) == f"{_AS_ISSUER}/"
+    assert str(metadata.issuer) == _AS_ISSUER
     assert metadata.registration_endpoint is None
 
 

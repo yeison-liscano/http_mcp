@@ -17,12 +17,12 @@ from http_mcp.failures import (
     PromptInvocationFailed,
     PromptNotFound,
     PromptServerFailure,
+    StructuredToolInvocationFailed,
     ToolInvocationFailed,
     ToolNotFound,
 )
 from http_mcp.server import MCPServer
 from http_mcp.types import Arguments, Prompt, Tool
-from http_mcp.types.models import ErrorMessage
 
 _MAX_NAME_LENGTH = 100
 _META = ResultMeta(server_info=Implementation(name="test", version="1.0.0"))
@@ -188,26 +188,26 @@ async def test_exceptions_from_tool_functions_stop_at_the_tool(
     [
         pytest.param(
             fails_as_expected,
-            ErrorMessage(
-                error_message="Error calling tool fails_as_expected: Value must be positive",
+            StructuredToolInvocationFailed(
+                "Error calling tool fails_as_expected: Value must be positive",
             ),
             id="tool-invocation-error",
         ),
         pytest.param(
             fails_with_server_error,
-            ToolInvocationFailed("State is missing"),
-            id="server-error-is-not-converted",
+            StructuredToolInvocationFailed("State is missing"),
+            id="server-error",
         ),
         pytest.param(
             crashes,
-            ErrorMessage(error_message="Error calling tool crashes: Unknown error"),
+            StructuredToolInvocationFailed("Error calling tool crashes: Unknown error"),
             id="crash-hides-the-details",
         ),
     ],
 )
-async def test_return_error_message_only_covers_invocation_failures(
+async def test_return_error_message_preserves_failures_as_explicit_values(
     func: object,
-    expected: ErrorMessage | ToolInvocationFailed,
+    expected: StructuredToolInvocationFailed,
     request_stub: Request,
 ) -> None:
     tool: Tool = Tool(
@@ -238,7 +238,10 @@ async def test_return_error_message_only_covers_invocation_failures(
         ),
         pytest.param(
             prompt_crashes,
-            PromptInvocationFailed("Error getting prompt prompt_crashes: Unknown error"),
+            PromptServerFailure(
+                ErrorCode.INTERNAL_ERROR,
+                "Error getting prompt prompt_crashes: Unknown error",
+            ),
             id="crash-hides-the-details",
         ),
     ],

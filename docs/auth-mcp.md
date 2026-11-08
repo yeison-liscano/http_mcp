@@ -56,18 +56,32 @@ All models use `ConfigDict(frozen=True)` (immutable after creation).
 protected resource. Key fields:
 
 - `resource` — the resource URI (`AnyHttpUrl`)
-- `authorization_servers` — tuple of authorization server URIs
+- `authorization_servers` — nonempty tuple of validated HTTPS issuer strings,
+  preserved exactly
 - `scopes_supported` — optional tuple of supported scopes
 
 **`AuthorizationServerMetadata`** (RFC 8414) describes an authorization server's
 endpoints and capabilities. Key fields:
 
-- `issuer` — must be HTTPS (validated)
-- `authorization_endpoint`, `token_endpoint` — required
+- `issuer` — validated HTTPS string, preserved exactly, including host case,
+  explicit ports, percent encoding, and presence or absence of a trailing slash
+- `authorization_endpoint`, `token_endpoint` — required HTTPS endpoints
 - `registration_endpoint` — present when Dynamic Client Registration is enabled
+- `registration_endpoint`, `revocation_endpoint` — must use HTTPS when present
 - `scopes_supported`, `response_types_supported`, `grant_types_supported` —
   capability advertisements
 - `code_challenge_methods_supported` — defaults to `("S256",)` (PKCE)
+- `authorization_response_iss_parameter_supported` and
+  `client_id_metadata_document_supported` — optional capability advertisements;
+  these fields describe the authorization server and do not implement its flows
+
+**Issuer type change:** `AuthorizationServerMetadata.issuer` and entries in
+`ProtectedResourceMetadata.authorization_servers` are now strings rather than
+`AnyHttpUrl` objects. Pass issuer identifiers as strings; use
+`urllib.parse.urlsplit(metadata.issuer)` when parsed components are needed.
+Validation rejects query strings, fragments, credentials, whitespace and control
+characters. The other URL fields retain their `AnyHttpUrl` type. This avoids
+normalizing distinct issuer identifiers into the same advertised value.
 
 ### `oauth.py`
 
@@ -136,8 +150,10 @@ A Starlette `AuthenticationBackend` that extracts the Bearer token from the
 alphanumeric + URL-safe characters), and delegates to your `TokenValidator`.
 
 When `require_authentication=True` (default), missing or invalid tokens cause a
-401 response. When `False`, unauthenticated requests pass through with empty
-credentials — tools/prompts without scope requirements remain accessible.
+401 response. When `False`, requests without an `Authorization` header pass
+through with empty credentials, so public tools and prompts remain accessible.
+Presented invalid, malformed, expired or wrong-audience credentials always cause
+a 401 response, including when authentication is optional.
 
 Whatever the validator checked, the backend also refuses a token whose
 `TokenInfo.expires_at` has passed, or whose `TokenInfo.audience` is set and
