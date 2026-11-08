@@ -5,14 +5,15 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   create-releases:
+    # Historical backfills are manual and may only run from main.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -55,10 +56,7 @@ jobs:
               echo "Tag $tag already exists, skipping tag creation"
             else
               echo "Creating tag $tag at $sha"
-              # Use the REST API to create the ref directly instead of `git push`,
-              # because git push is rejected for commits that touch .github/workflows/
-              # even with contents:write. The workflows:write permission above is
-              # required so the token can create refs pointing to such commits.
+              # Create the exact historical ref; never move an existing tag.
               gh api "repos/$GITHUB_REPOSITORY/git/refs" \
                 --method POST \
                 -f "ref=refs/tags/$tag" \
