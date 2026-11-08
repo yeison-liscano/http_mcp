@@ -158,6 +158,32 @@ of rules a request can select into.
 > numerically, so a header reading `3.0` for `"replicas": 3` now gets `-32020`.
 > Notification handling was subsequently corrected as described below.
 
+> **Breaking changes in 0.19.0rc1.**
+>
+> - `ProtectedResourceMetadata.authorization_servers` now contains validated
+>   issuer strings instead of `AnyHttpUrl` objects.
+>   `AuthorizationServerMetadata.issuer` is also a string. This preserves issuer
+>   spelling exactly, including trailing slashes, case and explicit ports. Pass
+>   strings when constructing metadata; migrate existing URL objects with
+>   `str(url)`. Use `urllib.parse.urlsplit(issuer)` instead of URL-object
+>   properties such as `.host` or `.path`. Other metadata URL fields retain
+>   `AnyHttpUrl`.
+> - `Tool.annotations` is a `ToolAnnotations` model; unspecified safety hints
+>   are omitted. Configured structured tool errors now retain their data with
+>   `isError:true`. Direct invocation callers must handle
+>   `StructuredToolInvocationFailed` instead of a plain `ErrorMessage` success
+>   outcome.
+
+> **Behavior changes in 0.19.0rc2.**
+>
+> - `ProtectedMCPAppConfig.middlewares` wraps only the configured MCP mount,
+>   preserving the original scope. Move middleware that should cover OAuth
+>   endpoints too to `create_protected_mcp_app(config, middleware=[...])`.
+> - Local HTTP authorization servers can be enabled with
+>   `AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP` as validation context.
+>   HTTPS remains the default; only canonical loopback hosts are permitted by
+>   the development opt-in.
+
 Tool input schemas use Pydantic's validation aliases. Output schemas use
 serialization aliases and serialization mode, including computed fields. Tools
 can return object, array, scalar or null values through a Pydantic model;
@@ -1214,6 +1240,16 @@ The `Tool` class is used to define tools that can be invoked by clients.
 
 The `Prompt` class is used to define prompts that can be invoked by clients.
 
+Import the return-content types through the public API:
+
+```python
+from http_mcp.types import Prompt, PromptMessage, TextContent
+```
+
+Prompt functions return `tuple[PromptMessage, ...]`, with text messages
+containing `TextContent`. These are public exports; application code does not
+need to import `http_mcp._mcp_types`.
+
 **Parameters:**
 
 - `func`: The function to be invoked. Can be sync or async. The function can
@@ -1311,7 +1347,55 @@ This gives you:
 - `/.well-known/oauth-protected-resource` discovery endpoint (RFC 9728)
 - `WWW-Authenticate` headers on 401/403 with `resource_metadata` parameter
 - Security headers (HSTS, nosniff, no-store)
-- Optional custom middleware via the `middlewares` parameter
+- MCP-only custom middleware via `ProtectedMCPAppConfig.middlewares`
+- App-wide middleware via `create_protected_mcp_app(config, middleware=[...])`
+
+### Applying Middleware to Selected Paths
+
+The built-in `token_validator` runs only on the MCP mount (`/mcp` by default).
+Protected-resource discovery, authorization-server metadata and `/register`
+remain outside that authentication stack. `config.middlewares` also applies only
+to the configured MCP mount; put additional token-validation middleware there to
+exclude the public OAuth endpoints.
+
+Starlette's `Middleware(...)` declaration does not add path filtering by itself;
+the helper uses a `Mount` to establish that boundary. Adding authentication to
+the app-wide list would also authenticate OAuth endpoints unless that middleware
+implements its own exclusions.
+
+App-wide middleware is explicit. For example, apply CORS to all endpoints while
+keeping token validation on `/mcp`:
+
+```python
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+
+# config.token_validator still validates only requests under config.mcp_path.
+app = create_protected_mcp_app(
+    config,
+    middleware=[
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["https://app.example.com"],
+            allow_methods=["GET", "POST"],
+            allow_headers=[
+                "Authorization", "Content-Type", "MCP-Protocol-Version",
+                "Mcp-Method", "Mcp-Name",
+            ],
+            expose_headers=["WWW-Authenticate"],
+        ),
+    ],
+)
+```
+
+The MCP server must also list the browser's origin in `allowed_origins`. Any
+middleware supplied through the app-wide `middleware` keyword runs for OAuth
+endpoints too. If you used the earlier prerelease's app-wide
+`config.middlewares` behavior, move those entries to this keyword. Starlette's
+mount-level middleware provides the path selection without a custom URL filter.
+
+For a local plain-HTTP authorization server, see the explicit
+[development opt-in](docs/auth-mcp.md#local-http-authorization-servers).
 
 For full documentation, best practices, and security surface details, see
 [auth_mcp README](src/auth_mcp/README.md).
@@ -1356,8 +1440,9 @@ For full documentation, best practices, and security surface details, see
 - **Input validation** — Only `GET` allowed; other methods return
   `405 Method Not Allowed`.
 - **Output** — Serialized once at startup from a frozen
-  `ProtectedResourceMetadata` model. URI fields validated as HTTP/HTTPS URLs via
-  Pydantic's `AnyHttpUrl`.
+  `ProtectedResourceMetadata` model. Resource/documentation URLs use Pydantic's
+  `AnyHttpUrl`; authorization-server issuers are validated strings whose exact
+  spelling is preserved.
 
 ### `WWW-Authenticate` Response Header (auth_mcp)
 

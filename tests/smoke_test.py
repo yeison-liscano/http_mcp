@@ -18,7 +18,7 @@ def main() -> int:
 
     # Test 2: Import types
     try:
-        from http_mcp.types import Prompt, Tool  # noqa: PLC0415, F401
+        from http_mcp.types import Prompt, PromptMessage, TextContent, Tool  # noqa: PLC0415, F401
     except ImportError:
         LOGGER.exception("✗ Failed to import types")
         return 1
@@ -53,8 +53,26 @@ def main() -> int:
     try:
         capabilities = server.capabilities
         assert capabilities is not None
+
+        # Test 6: Register a prompt using only the public return-content types.
+        LOGGER.info("✓ Testing public prompt content types...")
+
+        def smoke_prompt() -> tuple[PromptMessage, ...]:
+            return (PromptMessage(role="user", content=TextContent(text="Smoke test")),)
+
+        prompt_server = MCPServer(
+            name="prompt-smoke-test",
+            version="0.0.1",
+            prompts=(Prompt(func=smoke_prompt, arguments_type=type(None)),),
+        )
+        assert prompt_server.capabilities.prompts is not None
+        message = smoke_prompt()[0]
+        assert message.model_dump() == {
+            "role": "user",
+            "content": {"type": "text", "text": "Smoke test"},
+        }
     except Exception:
-        LOGGER.exception("✗ Failed to get capabilities")
+        LOGGER.exception("✗ Failed to verify capabilities or public prompt content types")
         return 1
 
     LOGGER.info("✅ All smoke tests passed!")

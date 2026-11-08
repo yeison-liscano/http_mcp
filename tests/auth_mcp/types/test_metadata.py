@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from auth_mcp.types import AuthorizationTransportPolicy
 from auth_mcp.types.metadata import (
     AuthorizationServerMetadata,
     ProtectedResourceMetadata,
@@ -249,3 +250,107 @@ def test_authorization_server_metadata_is_frozen() -> None:
     )
     with pytest.raises(ValidationError):
         metadata.issuer = "https://other.example.com"
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]", "LOCALHOST"])
+def test_loopback_http_requires_opt_in_and_preserves_exact_issuer(host: str) -> None:
+    issuer = f"http://{host}:8000/%7Eissuer"
+    server_data = {
+        "issuer": issuer,
+        "authorization_endpoint": f"http://{host}:8000/authorize",
+        "token_endpoint": f"http://{host}:8000/token",
+        "registration_endpoint": f"http://{host}:8000/register",
+        "revocation_endpoint": f"http://{host}:8000/revoke",
+    }
+    resource_data = {"resource": "http://localhost:8001/mcp", "authorization_servers": (issuer,)}
+    for context in (None, AuthorizationTransportPolicy.HTTPS_ONLY):
+        with pytest.raises(ValidationError, match="Issuer must use HTTPS"):
+            AuthorizationServerMetadata.model_validate(server_data, context=context)
+        with pytest.raises(ValidationError, match="Issuer must use HTTPS"):
+            ProtectedResourceMetadata.model_validate(resource_data, context=context)
+
+    policy = AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP
+    server = AuthorizationServerMetadata.model_validate(server_data, context=policy)
+    resource = ProtectedResourceMetadata.model_validate(resource_data, context=policy)
+    assert server.issuer == issuer
+    assert resource.authorization_servers == (issuer,)
+    assert server.model_dump(mode="json", exclude_none=True) == {
+        **{
+            name: value if name == "issuer" else value.replace(host, host.lower())
+            for name, value in server_data.items()
+        },
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    }
+    assert (
+        AuthorizationServerMetadata.model_validate_json(
+            server.model_dump_json(),
+            context=policy,
+        ).issuer
+        == issuer
+    )
+    with pytest.raises(ValidationError):
+        AuthorizationServerMetadata.model_validate_json(server.model_dump_json())
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://auth.example.com",
+        "http://localhost.evil.example",
+        "http://localhost.",
+        "http://foo.localhost",
+        "http://0.0.0.0",
+        "http://127.0.0.2",
+        "http://127.1",
+        "http://2130706433",
+        "http://0x7f000001",
+        "http://[::ffff:127.0.0.1]",
+        "http://user@localhost",
+        "http://localhost@evil.example",
+        "http://evil.example\\@localhost",
+        "http://localhost\n",
+        "http://localhost\t/authorize",
+        "http:localhost",
+    ],
+)
+def test_loopback_opt_in_rejects_remote_and_obfuscated_http_urls(url: str) -> None:
+    policy = AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP
+    with pytest.raises(ValidationError):
+        ProtectedResourceMetadata.model_validate(
+            {"resource": "https://mcp.example.com", "authorization_servers": (url,)},
+            context=policy,
+        )
+    with pytest.raises(ValidationError):
+        AuthorizationServerMetadata.model_validate(
+            {"issuer": url, "authorization_endpoint": _AS_AUTHORIZE, "token_endpoint": _AS_TOKEN},
+            context=policy,
+        )
+    with pytest.raises(ValidationError):
+        AuthorizationServerMetadata.model_validate(
+            {"issuer": _AS_ISSUER, "authorization_endpoint": url, "token_endpoint": _AS_TOKEN},
+            context=policy,
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["authorization_endpoint", "token_endpoint", "registration_endpoint", "revocation_endpoint"],
+)
+def test_each_endpoint_requires_explicit_loopback_policy(endpoint: str) -> None:
+    url = "http://localhost:8000/endpoint?audience=user@example.com"
+    data = {
+        "issuer": _AS_ISSUER,
+        "authorization_endpoint": _AS_AUTHORIZE,
+        "token_endpoint": _AS_TOKEN,
+        endpoint: url,
+    }
+    with pytest.raises(ValidationError, match="endpoints must use HTTPS"):
+        AuthorizationServerMetadata.model_validate(data)
+    metadata = AuthorizationServerMetadata.model_validate(
+        data,
+        context=AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP,
+    )
+    assert metadata.model_dump(mode="json")[endpoint] == url
