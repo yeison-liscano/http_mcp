@@ -19,7 +19,7 @@ jobs:
       name: pypi
     steps:
       - name: Checkout
-        uses: actions/checkout@c2d88d3ecc89a9ef08eebf45d9637801dcee7eb5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # Fetch all history for proper tagging
 
@@ -27,23 +27,23 @@ jobs:
         id: get_version
         run: |
           VERSION=$(grep -E '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected version: $VERSION"
 
       - name: Check if tag exists
         id: check_tag
         run: |
           if git rev-parse "v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Tag v${{ steps.get_version.outputs.version }} already exists"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "Tag v${{ steps.get_version.outputs.version }} does not exist"
           fi
 
       - name: Install uv
         if: steps.check_tag.outputs.exists == 'false'
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install Python 3.13
         if: steps.check_tag.outputs.exists == 'false'
@@ -82,7 +82,14 @@ jobs:
         if: steps.check_tag.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          gh release create "v${{ steps.get_version.outputs.version }}" \
-            --title "Release ${{ steps.get_version.outputs.version }}" \
-            --generate-notes
+          release_flags=(--generate-notes)
+          # Match canonical PEP 440 alpha, beta, release-candidate and dev versions.
+          # Local version labels do not change whether a version is a prerelease.
+          if [[ "${RELEASE_VERSION%%+*}" =~ (a|b|rc|\.dev)[0-9]+(\.post[0-9]+)?$ ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+          gh release create "v${RELEASE_VERSION}" \
+            --title "Release ${RELEASE_VERSION}" \
+            "${release_flags[@]}"

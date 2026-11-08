@@ -1,4 +1,9 @@
+from typing import TYPE_CHECKING, cast
+
 from pydantic import BaseModel, TypeAdapter
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeForm
 
 
 def generate_union_schema(
@@ -15,4 +20,6 @@ def generate_union_schema(
         A serialization schema representing either model on the wire.
 
     """
-    return TypeAdapter(type_a | type_b).json_schema(by_alias=True, mode="serialization")
+    # The union is a runtime type expression built from the supplied model classes.
+    schema_type = cast("TypeForm[BaseModel]", type_a | type_b)
+    return TypeAdapter(schema_type).json_schema(by_alias=True, mode="serialization")
