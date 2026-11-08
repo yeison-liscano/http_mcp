@@ -331,9 +331,9 @@ def test_server_call_prompt_with_error(prompt: Prompt) -> None:
     assert without_envelope(response_json) == {
         "jsonrpc": "2.0",
         "id": 1,
-        "result": {
-            "description": f"Error getting prompt {prompt.name}: Unknown error",
-            "messages": [],
+        "error": {
+            "code": ErrorCode.INTERNAL_ERROR.value,
+            "message": f"Error getting prompt {prompt.name}: Unknown error",
         },
     }
 
@@ -343,7 +343,7 @@ def test_prompt_not_found() -> None:
         tools=(),
         name="test",
         version="1.0.0",
-        prompts=(),
+        prompts=(PROMPT_SYNC,),
     )
     client = MCPTestClient(server.app, headers={"Authorization": "Bearer TEST_TOKEN"})
     response = client.post(

@@ -15,3 +15,5 @@ Fluid-Attacks-SAST-Results.csv
 /.agents/
 /.claude/
 /.codex/
+/reports/
+/research_notes/

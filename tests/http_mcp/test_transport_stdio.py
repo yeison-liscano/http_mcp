@@ -69,7 +69,7 @@ async def test_studio_transport_invalid_request() -> None:
         "jsonrpc": "2.0",
         "id": 1,
         "error": {
-            "code": ErrorCode.INVALID_PARAMS.value,
+            "code": ErrorCode.INVALID_REQUEST.value,
             "message": '[{"field": "method", "message": "Field required"}]',
         },
     }
@@ -134,7 +134,7 @@ async def test_studio_transport_rejects_retired_method() -> None:
     stdout_data, _ = await process.communicate(
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8"),
     )
-    assert json.loads(stdout_data)["error"]["code"] == ErrorCode.INVALID_PARAMS.value
+    assert json.loads(stdout_data)["error"]["code"] == ErrorCode.METHOD_NOT_FOUND.value
 
 
 @pytest.mark.asyncio

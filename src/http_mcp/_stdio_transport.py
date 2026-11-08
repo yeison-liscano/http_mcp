@@ -11,11 +11,13 @@ from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import ErrorCode
 from http_mcp._json_rcp_types.messages import (
+    JSONRPCError,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
 )
-from http_mcp._parsing import InvalidJson, InvalidModel, Parsed, parse_json, parse_model
-from http_mcp._transport_base import BaseTransport, Dispatched, error_response, request_id
+from http_mcp._parsing import InvalidJson, Parsed, parse_json
+from http_mcp._transport_base import BaseTransport, Dispatched, error_response
 from http_mcp.failures import InsufficientScope
 from http_mcp.server_interface import ServerInterface
 
@@ -96,18 +98,6 @@ def _stdout_reserved_for_protocol() -> Iterator[int]:
         os.close(saved_fd)
 
 
-def _is_notification(json_message: object) -> bool:
-    """Return True for JSON-RPC notifications, which must not receive a response."""
-    if not isinstance(json_message, dict):
-        return False
-    method = json_message.get("method")
-    return (
-        isinstance(method, str)
-        and method.startswith("notifications/")
-        and json_message.get("id") is None
-    )
-
-
 class StdioTransport(BaseTransport):
     def __init__(self, server: ServerInterface) -> None:
         super().__init__(server)
@@ -165,8 +155,7 @@ class StdioTransport(BaseTransport):
                     error_response(None, ErrorCode.PARSE_ERROR, "Parse error"),
                 )
             case Parsed(value=json_message):
-                if not _is_notification(json_message):
-                    await self._handle_json(json_message, writer, request_headers)
+                await self._handle_json(json_message, writer, request_headers)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -176,14 +165,14 @@ class StdioTransport(BaseTransport):
         writer: asyncio.StreamWriter,
         request_headers: dict[str, str] | None,
     ) -> None:
-        match parse_model(JSONRPCRequest, json_message):
-            case InvalidModel(description=description):
+        match self._parse_request(json_message):
+            case JSONRPCError() as error:
                 LOGGER.error("STDIO request validation error")
-                await self._write_message(
-                    writer,
-                    error_response(request_id(json_message), ErrorCode.INVALID_PARAMS, description),
-                )
-            case Parsed(value=message):
+                await self._write_message(writer, error)
+            case JSONRPCNotification():
+                # Unknown notifications are ignored, without invoking request methods.
+                return
+            case JSONRPCRequest() as message:
                 await self._handle_message(message, writer, request_headers)
             case _ as unreachable:
                 assert_never(unreachable)

@@ -84,6 +84,14 @@ class ToolInvocationFailed:
 
 
 @dataclass(frozen=True)
+class StructuredToolInvocationFailed:
+    """A failed invocation whose ErrorMessage data must also be returned."""
+
+    message: str
+    type: Literal["structured_tool_invocation_failed"] = "structured_tool_invocation_failed"
+
+
+@dataclass(frozen=True)
 class PromptInvocationFailed:
     """A prompt function failed. Reported as a result with the message as description."""
 

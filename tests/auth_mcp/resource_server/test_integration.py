@@ -188,18 +188,15 @@ def test_invalid_token_returns_401_when_auth_required() -> None:
     assert "www-authenticate" in response.headers
 
 
-def test_invalid_token_sees_public_tools_when_auth_not_required() -> None:
+def test_invalid_token_returns_401_when_auth_not_required() -> None:
     client = _create_app(require_authentication=False)
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
         headers={"Authorization": "Bearer bad_token"},
     )
-    assert response.status_code == HTTPStatus.OK
-    data = response.json()
-    tool_names = [t["name"] for t in data["result"]["tools"]]
-    assert "_get_weather" in tool_names
-    assert "_private_tool" not in tool_names
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert "www-authenticate" in response.headers
 
 
 def test_default_require_authentication_is_true() -> None:
@@ -260,7 +257,7 @@ def test_authorization_server_metadata_endpoint() -> None:
     response = client.get("/.well-known/oauth-authorization-server")
     assert response.status_code == HTTPStatus.OK
     data = response.json()
-    assert data["issuer"] == "https://auth.example.com/"
+    assert data["issuer"] == "https://auth.example.com"
     assert data["authorization_endpoint"] == "https://auth.example.com/authorize"
     assert data["token_endpoint"] == "https://auth.example.com/token"  # noqa: S105
 

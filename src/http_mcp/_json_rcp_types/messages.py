@@ -14,7 +14,20 @@ class JSONRPCMessage(BaseModel):
     id: StrictInt | StrictStr | None = None
 
 
-class JSONRPCRequest(JSONRPCMessage):
+class JSONRPCRequestEnvelope(JSONRPCMessage):
+    """A request envelope, before method selection and parameter validation."""
+
+    id: StrictInt | StrictStr
+    method: StrictStr
+
+
+class JSONRPCNotification(BaseModel):
+    jsonrpc: Literal["2.0"]
+    method: StrictStr
+    params: dict[str, Any] | None = None
+
+
+class JSONRPCRequest(JSONRPCRequestEnvelope):
     method: Literal[
         "prompts/list",
         "prompts/get",

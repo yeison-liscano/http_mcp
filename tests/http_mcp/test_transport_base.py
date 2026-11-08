@@ -74,7 +74,7 @@ def test_method_not_found() -> None:
         "id": 1,
         "error": {
             "code": ErrorCode.METHOD_NOT_FOUND.value,
-            "message": "Error validating message request",
+            "message": "Method not supported",
         },
     }
 
@@ -104,7 +104,7 @@ def test_invalid_tool_execution_request() -> None:
 
 
 def test_prompts_get_with_invalid_arguments_returns_invalid_params() -> None:
-    client = MCPTestClient(DUMMY_SERVER.app)
+    client = MCPTestClient(mount_mcp_server(mcp_server))
 
     response = client.post(
         "/mcp",

@@ -1,10 +1,31 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
 from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.pagination import PaginatedRequestParams
 from http_mcp._mcp_types.results import CacheableResult, Result
+
+
+class ToolAnnotations(BaseModel):
+    """Developer-supplied hints. Unspecified hints are omitted from the wire."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    title: str | None = None
+    read_only_hint: bool | None = Field(default=None, serialization_alias="readOnlyHint")
+    destructive_hint: bool | None = Field(default=None, serialization_alias="destructiveHint")
+    idempotent_hint: bool | None = Field(default=None, serialization_alias="idempotentHint")
+    open_world_hint: bool | None = Field(default=None, serialization_alias="openWorldHint")
 
 
 class ToolsListResult(CacheableResult):
@@ -27,10 +48,23 @@ class ToolsCallSuccess(Result):
         alias_priority=1,
         default=False,
     )
-    structured_content: dict[str, Any] = Field(
+    structured_content: JsonValue = Field(
         serialization_alias="structuredContent",
         alias_priority=1,
     )
+
+    @model_serializer(mode="wrap")
+    def _serialize(
+        self,
+        handler: SerializerFunctionWrapHandler,
+        info: SerializationInfo,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        # A root-model null is a result, not an absent optional field. Transports
+        # exclude None for optional metadata but must retain this required value.
+        key = "structuredContent" if info.by_alias else "structured_content"
+        result[key] = self.structured_content
+        return result
 
 
 class ToolsCallFailure(Result):
@@ -42,8 +76,12 @@ class ToolsCallFailure(Result):
     )
 
 
+class ToolsCallStructuredFailure(ToolsCallFailure):
+    structured_content: dict[str, str] = Field(serialization_alias="structuredContent")
+
+
 class ToolsCallResponse(JSONRPCMessage):
-    result: ToolsCallSuccess | ToolsCallFailure
+    result: ToolsCallSuccess | ToolsCallStructuredFailure | ToolsCallFailure
 
 
 class ToolsCallRequestParams(BaseModel):
@@ -57,25 +95,8 @@ class ToolsCallRequest(JSONRPCRequest):
     params: ToolsCallRequestParams
 
 
-class ToolsListRequestParams(BaseModel):
-    cursor: int | None = None
-
-    @field_validator("cursor", mode="before")
-    @classmethod
-    def validate_cursor(cls, v: object) -> int | None:
-        if v is None:
-            return None
-        invalid_cursor_msg = "Invalid cursor"
-        if isinstance(v, bool) or not isinstance(v, int | str):
-            # ValueError (not TypeError) so pydantic reports it as a validation error
-            raise ValueError(invalid_cursor_msg)  # noqa: TRY004
-        try:
-            cursor = int(v)
-        except ValueError as e:
-            raise ValueError(invalid_cursor_msg) from e
-        if cursor < 0:
-            raise ValueError(invalid_cursor_msg)
-        return cursor
+class ToolsListRequestParams(PaginatedRequestParams):
+    pass
 
 
 class ToolsListRequest(JSONRPCRequest):

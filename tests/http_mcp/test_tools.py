@@ -182,10 +182,6 @@ def test_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Tool 1",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
                 {
@@ -223,10 +219,6 @@ def test_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Tool 2",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
                 {
@@ -278,8 +270,7 @@ def test_list_tools() -> None:
                                 "type": "object",
                             },
                         },
-                        "type": "object",
-                        "oneOf": [
+                        "anyOf": [
                             {"$ref": "#/$defs/TestTool1Output"},
                             {"$ref": "#/$defs/ErrorMessage"},
                         ],
@@ -287,10 +278,6 @@ def test_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Tool That Raises Invocation Result",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
                 {
@@ -316,10 +303,6 @@ def test_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Tool Without Arguments",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
                 {
@@ -345,10 +328,6 @@ def test_list_tools() -> None:
                     },
                     "annotations": {
                         "title": "Tool Without Arguments Async",
-                        "readOnlyHint": False,
-                        "destructiveHint": False,
-                        "idempotentHint": True,
-                        "openWorldHint": True,
                     },
                 },
             ],
@@ -565,7 +544,7 @@ def test_server_call_tool_with_error() -> None:
 
 def test_tool_not_found() -> None:
     server = MCPServer(
-        tools=(),
+        tools=TOOLS[:1],
         name="test",
         version="1.0.0",
         prompts=(),
@@ -760,6 +739,6 @@ def test_tool_returns_error_message_when_configured() -> None:
     )
     assert response.status_code == HTTPStatus.OK
     data = response.json()
-    assert data["result"]["isError"] is False
+    assert data["result"]["isError"] is True
     content = data["result"]["structuredContent"]
     assert "Something failed" in content["error_message"]

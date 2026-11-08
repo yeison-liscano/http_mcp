@@ -10,7 +10,9 @@ from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp._json_rcp_types.messages import (
     JSONRPCError,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCRequestEnvelope,
 )
 from http_mcp._mcp_types.content import TextContent
 from http_mcp._mcp_types.discover import DiscoverResponse, DiscoverResult
@@ -18,6 +20,7 @@ from http_mcp._mcp_types.meta import Implementation, RequestMeta, ResultMeta
 from http_mcp._mcp_types.prompts import (
     PromptGetRequest,
     PromptGetResult,
+    PromptListRequest,
     PromptListResult,
     PromptMessage,
     PromptsGetResponse,
@@ -28,6 +31,7 @@ from http_mcp._mcp_types.tools import (
     ToolsCallFailure,
     ToolsCallRequest,
     ToolsCallResponse,
+    ToolsCallStructuredFailure,
     ToolsCallSuccess,
     ToolsListRequest,
     ToolsListResponse,
@@ -41,10 +45,12 @@ from http_mcp.failures import (
     PromptInvocationFailed,
     PromptNotFound,
     PromptServerFailure,
+    StructuredToolInvocationFailed,
     ToolInvocationFailed,
     ToolNotFound,
 )
 from http_mcp.server_interface import PromptGetOutcome, ServerInterface, ToolCallOutcome
+from http_mcp.types.models import ErrorMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -134,6 +140,47 @@ class BaseTransport:
     def __init__(self, server: ServerInterface) -> None:
         self._server = server
 
+    def _parse_request(
+        self,
+        raw_message: object,
+    ) -> JSONRPCRequest | JSONRPCNotification | JSONRPCError:
+        if isinstance(raw_message, dict) and "id" not in raw_message:
+            match parse_model(JSONRPCNotification, raw_message):
+                case Parsed(value=notification):
+                    return notification
+                case InvalidModel(description=description):
+                    return error_response(None, ErrorCode.INVALID_REQUEST, description)
+                case _ as invalid_notification:
+                    assert_never(invalid_notification)
+
+        match parse_model(JSONRPCRequestEnvelope, raw_message):
+            case InvalidModel(description=description):
+                return error_response(
+                    request_id(raw_message),
+                    ErrorCode.INVALID_REQUEST,
+                    description,
+                )
+            case Parsed(value=envelope):
+                if envelope.method not in self.supported_methods:
+                    return error_response(
+                        envelope.id,
+                        ErrorCode.METHOD_NOT_FOUND,
+                        "Method not supported",
+                    )
+                match parse_model(JSONRPCRequest, raw_message):
+                    case Parsed(value=message):
+                        return message
+                    case InvalidModel(description=description):
+                        return error_response(
+                            request_id(raw_message),
+                            ErrorCode.INVALID_PARAMS,
+                            description,
+                        )
+                    case _ as invalid_request:
+                        assert_never(invalid_request)
+            case _ as unreachable:
+                assert_never(unreachable)
+
     # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
@@ -156,6 +203,11 @@ class BaseTransport:
         message: JSONRPCRequest,
         request: Request,
     ) -> Dispatched | InsufficientScope:
+        if not self._method_is_advertised(message):
+            return Dispatched(
+                error_response(message.id, ErrorCode.METHOD_NOT_FOUND, "Method not supported"),
+                HTTPStatus.NOT_FOUND,
+            )
         match message.method:
             case "server/discover":
                 return Dispatched(self._handle_discover(message), HTTPStatus.OK)
@@ -167,6 +219,17 @@ class BaseTransport:
                 return Dispatched(self._list_prompts(message, request), HTTPStatus.OK)
             case "prompts/get":
                 return _with_ok_status(await self._get_prompt(message, request))
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def _method_is_advertised(self, message: JSONRPCRequest) -> bool:
+        match message.method:
+            case "server/discover":
+                return True
+            case "tools/list" | "tools/call":
+                return self._server.capabilities.tools is not None
+            case "prompts/list" | "prompts/get":
+                return self._server.capabilities.prompts is not None
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -226,7 +289,21 @@ class BaseTransport:
     # Features
     # ------------------------------------------------------------------
 
-    def _list_prompts(self, message: JSONRPCRequest, request: Request) -> PromptsListResponse:
+    def _list_prompts(
+        self,
+        message: JSONRPCRequest,
+        request: Request,
+    ) -> PromptsListResponse | JSONRPCError:
+        match parse_model(PromptListRequest, message.model_dump()):
+            case InvalidModel(description=description):
+                return error_response(message.id, ErrorCode.INVALID_PARAMS, description)
+            case Parsed(value=validated):
+                if validated.params is not None and validated.params.cursor not in (None, 0):
+                    # Prompts are returned in one page, so no nonzero continuation
+                    # cursor has been issued by this server.
+                    return error_response(message.id, ErrorCode.INVALID_PARAMS, "Invalid cursor")
+            case _ as unreachable:
+                assert_never(unreachable)
         return PromptsListResponse(
             jsonrpc="2.0",
             id=message.id,
@@ -307,13 +384,19 @@ class BaseTransport:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def _tools_page(self, message: ToolsListRequest, request: Request) -> ToolsListResponse:
+    def _tools_page(
+        self,
+        message: ToolsListRequest,
+        request: Request,
+    ) -> ToolsListResponse | JSONRPCError:
         all_tools = self._server.list_tools(request)
         sorted_tools = sorted(all_tools, key=lambda x: x["name"])
         total_tools = len(sorted_tools)
 
         cursor = message.params.cursor if message.params else 0
-        start_index = max(0, min(cursor or 0, total_tools))
+        start_index = cursor or 0
+        if start_index and start_index >= total_tools:
+            return error_response(message.id, ErrorCode.INVALID_PARAMS, "Invalid cursor")
         end_index = min(start_index + TOOLS_CHUNK_SIZE, total_tools)
         tools = sorted_tools[start_index:end_index]
 
@@ -381,6 +464,17 @@ class BaseTransport:
                     result=ToolsCallFailure(
                         meta=self._result_meta(),
                         content=(TextContent(type="text", text=failure),),
+                    ),
+                )
+            case StructuredToolInvocationFailed(message=failure):
+                data = ErrorMessage(error_message=failure)
+                return ToolsCallResponse(
+                    jsonrpc="2.0",
+                    id=message_id,
+                    result=ToolsCallStructuredFailure(
+                        meta=self._result_meta(),
+                        content=(TextContent(type="text", text=data.model_dump_json()),),
+                        structured_content=data.model_dump(mode="json"),
                     ),
                 )
             case ToolNotFound() | InvalidArguments() as rejected:

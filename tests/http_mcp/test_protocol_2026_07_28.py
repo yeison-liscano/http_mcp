@@ -698,12 +698,12 @@ def test_unannotated_param_headers_are_ignored() -> None:
 
 
 def _post_with_origin(server: MCPServer, origin: str | None) -> Any:  # noqa: ANN401
-    sent = headers("tools/list")
+    sent = headers("server/discover")
     if origin is not None:
         sent["Origin"] = origin
     return TestClient(mount_mcp_server(server)).post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta()}},
+        json={"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta()}},
         headers=sent,
     )
 
@@ -778,8 +778,8 @@ def test_cache_settings_can_be_overridden() -> None:
 
     response = TestClient(mount_mcp_server(server)).post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta()}},
-        headers=headers("tools/list"),
+        json={"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta()}},
+        headers=headers("server/discover"),
     )
 
     result = response.json()["result"]
