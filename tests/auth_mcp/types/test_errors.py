@@ -108,3 +108,19 @@ def test_www_authenticate_challenge_is_frozen() -> None:
     challenge = WWWAuthenticateChallenge()
     with pytest.raises(ValidationError):
         challenge.scheme = "Basic"
+
+
+@pytest.mark.parametrize(
+    "scheme",
+    ["Bearer\r\nSet-Cookie: a=b", "Bearer realm", 'Bear"er', "", "Bearer\x00"],
+)
+def test_www_authenticate_scheme_must_be_a_token(scheme: str) -> None:
+    """The scheme is emitted unquoted, so it is validated rather than escaped."""
+    with pytest.raises(ValidationError):
+        WWWAuthenticateChallenge(scheme=scheme)
+
+
+@pytest.mark.parametrize("unsafe", ["\x00", "\x0b", "\x7f", "\x85", "\u2028", "\t"])
+def test_www_authenticate_strips_every_control_character(unsafe: str) -> None:
+    challenge = WWWAuthenticateChallenge(error_description=f"bad{unsafe}value")
+    assert challenge.to_header_value() == 'Bearer error_description="badvalue"'

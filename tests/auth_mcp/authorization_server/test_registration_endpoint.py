@@ -3,6 +3,7 @@ from http import HTTPStatus
 
 import pytest
 from starlette.testclient import TestClient
+from starlette.types import Message
 
 from auth_mcp.authorization_server.client_store import ClientStore, RegistrationRejected
 from auth_mcp.authorization_server.registration_endpoint import (
@@ -156,7 +157,7 @@ def test_store_raises_registration_error_returns_400() -> None:
     assert "Policy violation" in data["error_description"]
 
 
-def test_oversized_body_returns_400() -> None:
+def test_oversized_body_returns_413() -> None:
     client = _create_client()
     large_body = json.dumps({"redirect_uris": ["https://example.com/callback"], "x": "a" * 70000})
     response = client.post(
@@ -164,9 +165,102 @@ def test_oversized_body_returns_400() -> None:
         content=large_body.encode(),
         headers={"content-type": "application/json"},
     )
-    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
     data = response.json()
     assert data["error"] == "invalid_client_metadata"
+
+
+async def _register_streamed(
+    chunks: int,
+    chunk: bytes,
+    content_length: bytes | None = None,
+) -> tuple[list[Message], int]:
+    """Send a body in chunks straight to the ASGI app; report what was read."""
+    endpoint = DynamicClientRegistrationEndpoint(MockClientStore())
+    sent: list[Message] = []
+    read = {"chunks": 0}
+
+    async def receive() -> Message:
+        read["chunks"] += 1
+        return {"type": "http.request", "body": chunk, "more_body": read["chunks"] < chunks}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    headers = [(b"content-type", b"application/json")]
+    if content_length is not None:
+        headers.append((b"content-length", content_length))
+    await endpoint(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "root_path": "",
+            "scheme": "http",
+            "http_version": "1.1",
+            "query_string": b"",
+            "client": ("1.2.3.4", 1),
+            "server": ("testserver", 80),
+            "headers": headers,
+        },
+        receive,
+        send,
+    )
+    return sent, read["chunks"]
+
+
+@pytest.mark.asyncio
+async def test_oversized_streamed_body_stops_being_read_at_the_cap() -> None:
+    """The route is unauthenticated, so the cap must bound memory, not just parsing."""
+    sent, chunks_read = await _register_streamed(chunks=64, chunk=b" " * 256 * 1024)
+
+    assert sent[0]["status"] == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    assert chunks_read == 1
+
+
+@pytest.mark.asyncio
+async def test_oversized_content_length_is_refused_before_reading() -> None:
+    sent, chunks_read = await _register_streamed(
+        chunks=1,
+        chunk=b"{}",
+        content_length=str(16 * 1024 * 1024).encode(),
+    )
+
+    assert sent[0]["status"] == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    assert chunks_read == 0
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        # CORS-safelisted types any page can send without a preflight.
+        "text/plain; charset=application/json",
+        "text/plain;application/json",
+        "multipart/form-data; boundary=application/json",
+        "application/x-www-form-urlencoded; a=application/json",
+        "application/jsonx",
+    ],
+)
+def test_content_type_must_be_application_json_itself(content_type: str) -> None:
+    client = _create_client()
+    response = client.post(
+        "/",
+        content=json.dumps(_valid_body()).encode(),
+        headers={"content-type": content_type},
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error_description"] == "Content-Type must be application/json"
+
+
+@pytest.mark.parametrize("content_type", ["application/json; charset=utf-8", "Application/JSON"])
+def test_application_json_with_parameters_or_any_case_is_accepted(content_type: str) -> None:
+    client = _create_client()
+    response = client.post(
+        "/",
+        content=json.dumps(_valid_body()).encode(),
+        headers={"content-type": content_type},
+    )
+    assert response.status_code == HTTPStatus.CREATED
 
 
 def test_store_raises_unexpected_error_returns_500() -> None:

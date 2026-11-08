@@ -12,6 +12,7 @@ class ErrorCode(IntEnum):
     is what the tools and prompts specs have always prescribed.
     """
 
+    PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
     METHOD_NOT_FOUND = -32601
     INVALID_PARAMS = -32602

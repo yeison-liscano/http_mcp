@@ -400,6 +400,8 @@ def test_insufficient_scope_tool_has_www_authenticate_header() -> None:
     assert "Bearer" in www_auth
     assert "insufficient_scope" in www_auth
     assert "resource_metadata=" in www_auth
+    # The tool needs "private"; naming it lets the client step up to that scope.
+    assert 'scope="private"' in www_auth
 
 
 def test_insufficient_scope_tool_has_security_headers() -> None:

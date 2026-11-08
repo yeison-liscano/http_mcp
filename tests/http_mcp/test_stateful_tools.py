@@ -210,7 +210,8 @@ def test_get_state_key_type_mismatch_raises_server_error() -> None:
         result = _call_tool(client, "tool_with_wrong_type", {})
         assert result["result"]["isError"] is True
         error_text = result["result"]["content"][0]["text"]
-        assert "type mismatch" in error_text
-        # Internal class names should NOT be leaked
+        # A wiring mistake is the developer's to fix: the client learns only that the
+        # server failed, not which state key or types were involved.
+        assert error_text == "Internal server error"
+        assert "context" not in error_text.lower()
         assert "WrongType" not in error_text
-        assert "Context" not in error_text

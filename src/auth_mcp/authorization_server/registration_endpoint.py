@@ -45,6 +45,33 @@ def _error_response(
     )
 
 
+async def _read_capped_body(request: Request) -> bytes | None:
+    """Read the body, refusing to buffer more than ``_MAX_BODY_SIZE``.
+
+    The cap has to be applied while reading. ``Request.body()`` drains the whole stream
+    first, so an unauthenticated client could make the server hold as much as the ASGI
+    server lets through before the limit was even consulted. Returns None when the body
+    is, or announces itself as, larger than the cap.
+    """
+    declared = request.headers.get("content-length")
+    if (
+        declared is not None
+        and declared.isascii()
+        and declared.isdigit()
+        and int(declared) > _MAX_BODY_SIZE
+    ):
+        return None
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_BODY_SIZE:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 class DynamicClientRegistrationEndpoint:
     """RFC 7591 Dynamic Client Registration endpoint.
 
@@ -90,13 +117,19 @@ class DynamicClientRegistrationEndpoint:
         await response(scope, receive, send)
 
     async def _handle_registration(self, request: Request) -> Response:
+        # Compare the media type itself. A substring test accepted CORS-safelisted types
+        # such as `text/plain; charset=application/json`, which any web page can send
+        # without a preflight.
         content_type = request.headers.get("content-type", "")
-        if "application/json" not in content_type:
+        if content_type.split(";")[0].strip().lower() != "application/json":
             return _error_response("Content-Type must be application/json")
 
-        body = await request.body()
-        if len(body) > _MAX_BODY_SIZE:
-            return _error_response("Request body too large")
+        body = await _read_capped_body(request)
+        if body is None:
+            return _error_response(
+                "Request body too large",
+                status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
 
         match self._parse_body(body):
             case Response() as rejection:
