@@ -1,6 +1,7 @@
 import typing as t
 from http import HTTPStatus
 
+import pytest
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -223,7 +224,12 @@ def test_cors_config_adds_cors_headers() -> None:
         ),
         require_authentication=False,
         middlewares=[
-            Middleware(CORSMiddleware, allow_origins=("https://client.example.com",)),
+            Middleware(
+                CORSMiddleware,
+                allow_origins=("https://client.example.com",),
+                allow_methods=("POST",),
+                allow_headers=("Authorization",),
+            ),
         ],
     )
     app = create_protected_mcp_app(config)
@@ -236,7 +242,7 @@ def test_cors_config_adds_cors_headers() -> None:
             "Access-Control-Request-Headers": "Authorization",
         },
     )
-    assert "access-control-allow-origin" in response.headers
+    assert response.status_code == HTTPStatus.OK
     assert response.headers["access-control-allow-origin"] == "https://client.example.com"
 
 
@@ -441,3 +447,99 @@ def test_custom_middlewares_run_once_per_request() -> None:
     )
     assert response.status_code == HTTPStatus.OK
     assert _CountingMiddleware.call_counts == ["/mcp/"]
+
+
+class _AppCountingMiddleware(_CountingMiddleware):
+    call_counts: t.ClassVar[list[str]] = []
+
+
+class _RecordingTokenValidator(MockTokenValidator):
+    def __init__(self) -> None:
+        self.tokens: list[str] = []
+
+    async def validate_token(self, token: str, resource: str | None = None) -> TokenInfo | None:
+        self.tokens.append(token)
+        return await super().validate_token(token, resource)
+
+
+@pytest.mark.parametrize("mcp_path", ["/mcp", "/api/mcp"])
+def test_mcp_middleware_and_token_validation_exclude_discovery_registration_and_other_paths(
+    mcp_path: str,
+) -> None:
+    _CountingMiddleware.call_counts.clear()
+    _AppCountingMiddleware.call_counts.clear()
+    validator = _RecordingTokenValidator()
+    config = ProtectedMCPAppConfig(
+        mcp_server=MCPServer("test", "1", tools=_TOOLS),
+        token_validator=validator,
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+        mcp_path=mcp_path,
+        authorization_server_metadata=_AS_METADATA,
+        client_store=MockClientStore(),
+        middlewares=(Middleware(_CountingMiddleware),),
+    )
+    client = MCPTestClient(
+        create_protected_mcp_app(config, middleware=[Middleware(_AppCountingMiddleware)]),
+    )
+    public_paths = (
+        f"/.well-known/oauth-protected-resource{mcp_path}/",
+        "/.well-known/oauth-authorization-server",
+    )
+    for path in public_paths:
+        assert (
+            client.get(path, headers={"Authorization": "Bearer invalid"}).status_code
+            == HTTPStatus.OK
+        )
+    assert (
+        client.post(
+            "/register",
+            json={"redirect_uris": ["https://client.example/callback"]},
+            headers={"Authorization": "Bearer invalid"},
+        ).status_code
+        == HTTPStatus.CREATED
+    )
+    assert client.get(f"{mcp_path}-other/").status_code == HTTPStatus.NOT_FOUND
+    assert validator.tokens == []
+    assert _CountingMiddleware.call_counts == []
+    assert _AppCountingMiddleware.call_counts == [*public_paths, "/register", f"{mcp_path}-other/"]
+
+    response = client.post(
+        f"{mcp_path}/",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"Authorization": "Bearer invalid"},
+    )
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert validator.tokens == ["invalid"]
+    assert _CountingMiddleware.call_counts == [f"{mcp_path}/"]
+    assert _AppCountingMiddleware.call_counts[-1] == f"{mcp_path}/"
+
+
+def test_app_wide_cors_covers_metadata_and_mcp_authentication_errors() -> None:
+    origin = "https://client.example.com"
+    config = ProtectedMCPAppConfig(
+        mcp_server=MCPServer("test", "1", tools=_TOOLS, allowed_origins=(origin,)),
+        token_validator=MockTokenValidator(),
+        resource_endpoint=ProtectedResourceMetadata(
+            resource="https://mcp.example.com",
+            authorization_servers=("https://auth.example.com",),
+        ),
+    )
+    client = MCPTestClient(
+        create_protected_mcp_app(
+            config,
+            middleware=[Middleware(CORSMiddleware, allow_origins=(origin,))],
+        ),
+    )
+    discovery = client.get("/.well-known/oauth-protected-resource/mcp/", headers={"Origin": origin})
+    assert discovery.status_code == HTTPStatus.OK
+    assert discovery.headers["access-control-allow-origin"] == origin
+    rejected = client.post(
+        "/mcp/",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"Origin": origin},
+    )
+    assert rejected.status_code == HTTPStatus.UNAUTHORIZED
+    assert rejected.headers["access-control-allow-origin"] == origin

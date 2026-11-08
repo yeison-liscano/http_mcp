@@ -90,38 +90,37 @@ reason about what happens on every request.
 
 ### Middleware Stack
 
-```
+```text
 Incoming HTTP request
-        │
-        ▼
-┌─────────────────────────┐
-│  Custom Middlewares      │  (optional — from config.middlewares)
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│   AuthErrorMiddleware   │  Adds HSTS / nosniff / no-store to all responses.
-│                         │  On 401/403: injects WWW-Authenticate header with
-│                         │  resource_metadata discovery URL.
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│ AuthenticationMiddleware│  Starlette built-in. Calls
-│  (OAuth Backend)        │  OAuthAuthenticationBackend.authenticate() on every
-│                         │  request and populates request.user / request.auth.
-└───────────┬─────────────┘
-            │
-       ┌────┴──────────────────────────────┐
-       │                                   │
-       ▼                                   ▼
-┌─────────────────┐             ┌──────────────────────────────┐
-│   MCPServer     │             │ ProtectedResourceMetadata    │
-│ (at mcp_path,   │             │ Endpoint                     │
-│  default /mcp)  │             │ /.well-known/oauth-protected-│
-│                 │             │ resource                     │
-└─────────────────┘             └──────────────────────────────┘
+    |
+    v
+App-wide middleware: create_protected_mcp_app(..., middleware=[...])
+    |
+    v
+Starlette router
+    |
+    +-- MCP mount (config.mcp_path, default /mcp)
+    |      config.middlewares
+    |          -> AuthErrorMiddleware
+    |          -> AuthenticationMiddleware (OAuth backend)
+    |          -> MCPServer
+    |
+    +-- Protected-resource metadata (public)
+    +-- Authorization-server metadata (public, when configured)
+    +-- /register (public, when configured)
 ```
+
+`ProtectedMCPAppConfig.middlewares` wraps only the configured MCP mount. This
+keeps custom token validation from affecting public discovery or registration.
+The built-in OAuth backend is also mounted only there: `require_authentication`
+does not apply to the public OAuth routes.
+
+Pass Starlette's singular `middleware` keyword to `create_protected_mcp_app`
+when middleware should cover the entire application. Global CORS or tracing can
+then run on every route while token validation remains MCP-only. Middleware put
+in that global list will also run on the OAuth endpoints; put custom validation
+in `config.middlewares` to exclude them. No hand-written prefix filter is
+needed.
 
 ### Request Authentication Flow
 
@@ -319,8 +318,7 @@ and authorization server load.
 **Validate the audience.** Check that the token's `audience` matches your
 `resource_uri` to prevent tokens issued for other services from being accepted.
 `OAuthAuthenticationBackend` also refuses a `TokenInfo` whose `audience` names
-another resource, but only a validator can check an audience it does not
-report.
+another resource, but only a validator can check an audience it does not report.
 
 ```python
 async def validate_token(
@@ -479,22 +477,22 @@ and `list_models`. Authenticated users with the right scopes also see
 
 ### Browser-Based MCP Client with CORS
 
-Enable cross-origin access for a browser-based client using the `middlewares`
-parameter with Starlette's `CORSMiddleware`. Two things besides the CORS
-middleware are needed:
+Use app-wide `middleware` with Starlette's `CORSMiddleware` so a browser can
+read both MCP responses and public OAuth metadata. Token validation still runs
+only on the MCP mount. Two things besides CORS middleware are needed:
 
 - The MCP server must accept the browser's origin. Without `allowed_origins` it
   accepts loopback origins only, as its DNS-rebinding defence.
 - The preflight must allow the request-metadata headers every MCP request
   carries (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`), plus one
-  `Mcp-Param-<Name>` for each `x-mcp-header` annotation your tools declare.
-  CORS has no prefix wildcard, so list them. `WWW-Authenticate` must be exposed
-  for the client to read the discovery and step-up challenges.
+  `Mcp-Param-<Name>` for each `x-mcp-header` annotation your tools declare. CORS
+  has no prefix wildcard, so list them. `WWW-Authenticate` must be exposed for
+  the client to read the discovery and step-up challenges.
 
 ```python
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from auth_mcp.resource_server import ProtectedMCPAppConfig
+from auth_mcp.resource_server import ProtectedMCPAppConfig, create_protected_mcp_app
 from auth_mcp.types import ProtectedResourceMetadata
 from http_mcp.server import MCPServer
 
@@ -514,7 +512,11 @@ config = ProtectedMCPAppConfig(
         resource="https://mcp.example.com",
         authorization_servers=("https://auth.example.com",),
     ),
-    middlewares=(
+)
+
+app = create_protected_mcp_app(
+    config,
+    middleware=[
         Middleware(
             CORSMiddleware,
             allow_origins=list(BROWSER_ORIGINS),
@@ -530,10 +532,8 @@ config = ProtectedMCPAppConfig(
             expose_headers=["WWW-Authenticate"],
             allow_credentials=True,
         ),
-    ),
+    ],
 )
-
-app = create_protected_mcp_app(config)
 ```
 
 ## Security Surfaces by Endpoint
@@ -556,23 +556,24 @@ messages. Pydantic validation errors sanitized before inclusion in responses. |
 
 ### `GET /.well-known/oauth-protected-resource` -- Discovery Endpoint
 
-| Surface | Details | |---|---| | **Authentication** | None. The route is outside
-the auth middleware that wraps `/mcp`, because RFC 9728 discovery is how an
-unauthenticated client finds the authorization server. It serves public
-metadata only. | | **Input validation** | Only `GET` allowed;
-other methods return `405 Method Not Allowed`. | | **Output** | Serialized once
-at startup from a frozen `ProtectedResourceMetadata` model. URI fields validated
-as HTTP/HTTPS URLs via Pydantic's `AnyHttpUrl`. | | **Response headers** | Same
-security headers as `/mcp`. |
+| Surface | Details | |---|---| | **Authentication** | None. The route is
+outside the auth middleware that wraps `/mcp`, because RFC 9728 discovery is how
+an unauthenticated client finds the authorization server. It serves public
+metadata only. | | **Input validation** | Only `GET` allowed; other methods
+return `405 Method Not Allowed`. | | **Output** | Serialized once at startup
+from a frozen `ProtectedResourceMetadata` model. URI fields validated using
+`AnyHttpUrl` for resource/documentation URLs and exact validated strings for
+authorization-server issuers. | | **Response headers** | Same security headers
+as `/mcp`. |
 
 ### `WWW-Authenticate` Response Header (401/403)
 
 | Surface | Details | |---|---| | **Header injection** | All parameter values
 (`realm`, `resource_metadata`, `scope`, `error`, `error_description`) are
-sanitized: every character outside visible ASCII and space is stripped (CR,
-LF, NUL, other controls, NEL, U+2028), then backslash and double-quote are
-escaped per RFC 9110 quoted-string rules. The scheme must be an RFC 9110 token.
-| | **Information disclosure** | Error responses use generic messages
+sanitized: every character outside visible ASCII and space is stripped (CR, LF,
+NUL, other controls, NEL, U+2028), then backslash and double-quote are escaped
+per RFC 9110 quoted-string rules. The scheme must be an RFC 9110 token. | |
+**Information disclosure** | Error responses use generic messages
 (`"Authentication required"`). The original `AuthenticationError` message is
 discarded. Error codes follow RFC 6750: `invalid_token` on a 401 only when a
 Bearer token was presented, none when there were no credentials, and
@@ -600,11 +601,16 @@ are never logged. Only `"Token validation failed"` and
 `Literal["S256"]` (plain method forbidden per OAuth 2.1). | |
 **`ClientRegistrationRequest`** | `redirect_uris` validated as absolute URIs
 with HTTPS scheme. HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`.
-Fragments, user information, backslashes, whitespace, and control characters
-are rejected, since URL parsers disagree on where such URIs point.
-`grant_types`, `response_types`, and `token_endpoint_auth_method` accept only
-the values this package serves; `client_name` is limited to 256 characters
-without control or formatting characters. The `/register` endpoint checks the
-media type exactly and caps the body at 64 KB while reading it (413). | | **`AuthorizationServerMetadata`** | `issuer` must use HTTPS. All endpoint
-fields validated as HTTP/HTTPS URLs. | | **Immutability** | All Pydantic models
-use `ConfigDict(frozen=True)` to prevent post-construction mutation. |
+Fragments, user information, backslashes, whitespace, and control characters are
+rejected, since URL parsers disagree on where such URIs point. `grant_types`,
+`response_types`, and `token_endpoint_auth_method` accept only the values this
+package serves; `client_name` is limited to 256 characters without control or
+formatting characters. The `/register` endpoint checks the media type exactly
+and caps the body at 64 KB while reading it (413). | |
+**`AuthorizationServerMetadata`** | Issuer strings and endpoint URLs require
+HTTPS by default. For local development only, pass
+`AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP` as the validation context to
+allow HTTP on `localhost`, `127.0.0.1` or `[::1]`. See the
+[development example](../../docs/auth-mcp.md#local-http-authorization-servers).
+| | **Immutability** | All Pydantic models use `ConfigDict(frozen=True)` to
+prevent post-construction mutation. |

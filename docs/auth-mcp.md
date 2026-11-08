@@ -83,6 +83,46 @@ Validation rejects query strings, fragments, credentials, whitespace and control
 characters. The other URL fields retain their `AnyHttpUrl` type. This avoids
 normalizing distinct issuer identifiers into the same advertised value.
 
+### Local HTTP Authorization Servers
+
+HTTPS is required by default for authorization-server issuers and endpoints.
+Local development can explicitly opt into HTTP on `localhost`, `127.0.0.1`, or
+`[::1]`, on any port:
+
+```python
+from auth_mcp.types import (
+    AuthorizationServerMetadata,
+    AuthorizationTransportPolicy,
+    ProtectedResourceMetadata,
+)
+
+development = AuthorizationTransportPolicy.ALLOW_LOOPBACK_HTTP
+
+authorization_server = AuthorizationServerMetadata.model_validate(
+    {
+        "issuer": "http://localhost:8000",
+        "authorization_endpoint": "http://localhost:8000/authorize",
+        "token_endpoint": "http://localhost:8000/token",
+    },
+    context=development,
+)
+resource_metadata = ProtectedResourceMetadata.model_validate(
+    {
+        "resource": "http://localhost:9000/mcp",
+        "authorization_servers": [authorization_server.issuer],
+    },
+    context=development,
+)
+```
+
+The policy is validation context, not an OAuth metadata field, and is never
+serialized. Use the same context when reloading local HTTP metadata with
+`model_validate_json`. Normal constructors and validation without this opt-in
+continue to require HTTPS. The exception rejects remote HTTP hosts, host
+lookalikes, credentials, whitespace, backslashes and shorthand IP spellings such
+as `127.1`. Issuer strings remain exact; endpoint fields remain `AnyHttpUrl`.
+This opt-in is for local development, not production authorization servers.
+
 ### `oauth.py`
 
 - **`TokenRequest`** — discriminated union on `grant_type`, so each grant
@@ -204,8 +244,11 @@ This gives you:
 - Bearer token validation on all requests
 - `/.well-known/oauth-protected-resource` metadata endpoint
 - Security headers and `WWW-Authenticate` on 401/403
-- Optional custom middleware, such as Starlette's `CORSMiddleware`, via
-  `middlewares=(...)` (see the CORS example in the
+- MCP-only custom middleware via `ProtectedMCPAppConfig.middlewares`; it does
+  not wrap metadata or registration endpoints
+- Explicit app-wide middleware through Starlette's `middleware` keyword on
+  `create_protected_mcp_app(config, middleware=[...])`, such as CORS for browser
+  discovery (see the CORS example in the
   [auth_mcp README](../src/auth_mcp/README.md#browser-based-mcp-client-with-cors))
 
 ______________________________________________________________________

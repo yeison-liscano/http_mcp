@@ -4,11 +4,9 @@ import pytest
 from pydantic import BaseModel, Field
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
-from http_mcp._mcp_types.content import TextContent
-from http_mcp._mcp_types.prompts import PromptMessage
 from http_mcp.exceptions import ServerError
 from http_mcp.server import MCPServer
-from http_mcp.types import Arguments, NoArguments, Prompt
+from http_mcp.types import Arguments, NoArguments, Prompt, PromptMessage, TextContent
 from tests.fixtures.main import BasicAuthBackend, mount_mcp_server
 from tests.fixtures.protocol import MCPTestClient, without_envelope
 

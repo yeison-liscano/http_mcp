@@ -27,6 +27,9 @@ class ProtectedMCPAppConfig:
     Authentication is required by default (``require_authentication=True``).
     Set to ``False`` only if you intentionally want unauthenticated users
     to access tools/prompts that have no scope requirements.
+
+    ``middlewares`` wraps only the MCP mount. To wrap the whole application,
+    pass Starlette's ``middleware`` argument to ``create_protected_mcp_app``.
     """
 
     mcp_server: MCPServer
@@ -63,7 +66,8 @@ def create_protected_mcp_app(
     - OAuthAuthenticationBackend for Bearer token validation
     - AuthErrorMiddleware for WWW-Authenticate headers on 401/403
     - Protected Resource Metadata at /.well-known/oauth-protected-resource
-    - Optional custom middleware via ``config.middlewares``
+    - MCP-only custom middleware via ``config.middlewares``
+    - App-wide middleware via Starlette's ``middleware`` keyword argument
     """
     metadata_endpoint = ProtectedResourceMetadataEndpoint(config.resource_endpoint)
     parsed = urlparse(str(config.resource_endpoint.resource))
@@ -115,6 +119,7 @@ def create_protected_mcp_app(
             config.mcp_path,
             config.mcp_server.app,
             middleware=[
+                *config.middlewares,
                 Middleware(
                     AuthErrorMiddleware,
                     resource_metadata_url=resource_metadata_url,
@@ -135,6 +140,5 @@ def create_protected_mcp_app(
 
     return Starlette(
         routes=routes,
-        middleware=list(config.middlewares),
         **starlette_kwargs,  # type: ignore[arg-type]
     )

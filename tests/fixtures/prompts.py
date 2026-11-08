@@ -1,9 +1,7 @@
 from pydantic import BaseModel, Field
 from starlette.authentication import has_required_scope
 
-from http_mcp._mcp_types.content import TextContent
-from http_mcp._mcp_types.prompts import PromptMessage
-from http_mcp.types import Arguments, NoArguments, Prompt
+from http_mcp.types import Arguments, NoArguments, Prompt, PromptMessage, TextContent
 from tests.fixtures.tools import TOOLS
 
 
