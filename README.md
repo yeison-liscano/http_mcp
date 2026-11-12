@@ -23,6 +23,7 @@ It is intended to be used with a Starlette or FastAPI application (see
   - [Tools with Authorization Scopes](#tools-with-authorization-scopes)
 - [Server State Management](#server-state-management)
 - [Request Access](#request-access)
+- [Multi Round-Trip Requests and Elicitation](docs/elicitation.md)
 - [Prompts](#prompts)
   - [Basic Prompt Example](#basic-prompt-example)
   - [Prompts Without Arguments](#prompts-without-arguments)
@@ -53,6 +54,8 @@ It is intended to be used with a Starlette or FastAPI application (see
   using the `get_state_key` method.
 - **Request Access**: Access the incoming request object from your tools and
   prompts.
+- **Multi Round-Trip Requests**: Form and URL elicitation for tools and prompts,
+  with explicit input outcomes and signed, expiring continuation state.
 - **Authorization Scopes**: Support for scope-based authorization using
   Starlette's authentication system.
 - **Error Handling**: Tools can optionally return error messages instead of
@@ -205,6 +208,15 @@ behavior.
 Empty tool or prompt registrations leave that capability unadvertised. Its list
 and invocation methods then return `-32601` (HTTP 404), matching discovery.
 Register at least one tool or prompt before using that feature's methods.
+
+Tools and prompts can request additional input with `InputRequired`, or return a
+state-only `RetryRequired`. Clients retry the original method with a new request
+ID, `inputResponses` and any `requestState` the server returned.
+`Arguments.continuation` exposes that request's inputs. Form and URL elicitation
+are supported over HTTP and STDIO; undeclared client capabilities never receive
+elicitation requests. See
+[Multi Round-Trip Requests and Elicitation](docs/elicitation.md) for a complete
+example and the signed-state helper.
 
 > **Behaviour changes since 0.18.0.** These close weaknesses found by an attack
 > review of the transports and of `auth_mcp`:

@@ -16,7 +16,17 @@ from http_mcp._json_rcp_types.messages import (
 )
 from http_mcp._mcp_types.content import TextContent
 from http_mcp._mcp_types.discover import DiscoverResponse, DiscoverResult
+from http_mcp._mcp_types.elicitation import (
+    InputRequired,
+    RetryRequired,
+    supported_elicitation_modes,
+)
 from http_mcp._mcp_types.meta import Implementation, RequestMeta, ResultMeta
+from http_mcp._mcp_types.mrtr import (
+    InputRequiredResponse,
+    InputRequiredResult,
+    RetryRequiredResult,
+)
 from http_mcp._mcp_types.prompts import (
     PromptGetRequest,
     PromptGetResult,
@@ -50,6 +60,12 @@ from http_mcp.failures import (
     ToolNotFound,
 )
 from http_mcp.server_interface import PromptGetOutcome, ServerInterface, ToolCallOutcome
+from http_mcp.types.continuation import (
+    INVOCATION_CONTEXT_KEY,
+    InvalidContinuationState,
+    InvalidInputResponse,
+    InvocationContext,
+)
 from http_mcp.types.models import ErrorMessage
 
 LOGGER = logging.getLogger(__name__)
@@ -84,6 +100,8 @@ def _with_ok_status(response: JSONRPCMessage | InsufficientScope) -> Dispatched 
     match response:
         case InsufficientScope():
             return response
+        case JSONRPCError(error=Error(code=ErrorCode.MISSING_REQUIRED_CLIENT_CAPABILITY)):
+            return Dispatched(response, HTTPStatus.BAD_REQUEST)
         case JSONRPCMessage():
             return Dispatched(response, HTTPStatus.OK)
         case _ as unreachable:
@@ -320,32 +338,52 @@ class BaseTransport:
         self,
         message: JSONRPCRequest,
         request: Request,
-    ) -> PromptsGetResponse | JSONRPCError | InsufficientScope:
+    ) -> PromptsGetResponse | InputRequiredResponse | JSONRPCError | InsufficientScope:
         match parse_model(PromptGetRequest, message.model_dump()):
             case InvalidModel(description=description):
                 LOGGER.error("Prompt get validation error")
                 return error_response(message.id, ErrorCode.INVALID_PARAMS, description)
             case Parsed(value=validated):
+                request.scope[INVOCATION_CONTEXT_KEY] = InvocationContext(
+                    method="prompts/get",
+                    name=validated.params.name,
+                    arguments=validated.params.arguments,
+                    input_responses=validated.params.input_responses,
+                    request_state=validated.params.request_state,
+                    elicitation_modes=supported_elicitation_modes(
+                        request_meta(message.params)["io.modelcontextprotocol/clientCapabilities"].get(
+                            "elicitation",
+                        ),
+                    ),
+                )
                 outcome = await self._server.get_prompt(
                     validated.params.name,
                     validated.params.arguments,
                     request,
                 )
-                return self._prompt_response(validated.id, outcome)
+                return self._prompt_response(message, outcome)
             case _ as unreachable:
                 assert_never(unreachable)
 
     def _prompt_response(
         self,
-        message_id: int | str | None,
+        message: JSONRPCRequest,
         outcome: PromptGetOutcome,
-    ) -> PromptsGetResponse | JSONRPCError | InsufficientScope:
+    ) -> PromptsGetResponse | InputRequiredResponse | JSONRPCError | InsufficientScope:
+        message_id = message.id
         match outcome:
+            case InputRequired() | RetryRequired():
+                return self._mrtr_response(message, outcome)
             case RenderedPrompt(description=description, messages=messages):
                 return self._prompt_result(message_id, description, messages)
             case PromptInvocationFailed(message=failure):
                 return self._prompt_result(message_id, failure, ())
-            case PromptNotFound() | InvalidArguments() as rejected:
+            case (
+                PromptNotFound()
+                | InvalidArguments()
+                | InvalidContinuationState()
+                | InvalidInputResponse()
+            ) as rejected:
                 return error_response(message_id, ErrorCode.INVALID_PARAMS, rejected.message)
             case PromptServerFailure(code=code, message=failure):
                 return error_response(message_id, code, failure)
@@ -369,6 +407,54 @@ class BaseTransport:
                 messages=messages,
             ),
         )
+
+    def _mrtr_response(
+        self,
+        message: JSONRPCRequest,
+        outcome: InputRequired | RetryRequired,
+    ) -> InputRequiredResponse | JSONRPCError:
+        match outcome:
+            case RetryRequired(request_state=state):
+                result = RetryRequiredResult(meta=self._result_meta(), request_state=state)
+                return InputRequiredResponse(jsonrpc="2.0", id=message.id, result=result)
+            case InputRequired(input_requests=requests, request_state=state):
+                meta = request_meta(message.params)
+                capabilities = meta["io.modelcontextprotocol/clientCapabilities"]
+                declared = capabilities.get("elicitation")
+                required_modes = {item.params.mode for item in requests.values()}
+                if isinstance(declared, dict) and not required_modes.issubset(
+                    supported_elicitation_modes(declared),
+                ):
+                    return error_response(
+                        message.id,
+                        ErrorCode.INVALID_PARAMS,
+                        "Client does not support the requested elicitation mode",
+                    )
+                if not isinstance(declared, dict):
+                    return JSONRPCError(
+                        jsonrpc="2.0",
+                        id=message.id,
+                        error=Error(
+                            code=ErrorCode.MISSING_REQUIRED_CLIENT_CAPABILITY,
+                            description="Client does not support the required elicitation modes",
+                            data={
+                                "requiredCapabilities": {
+                                    "elicitation": {mode: {} for mode in sorted(required_modes)},
+                                },
+                            },
+                        ),
+                    )
+                return InputRequiredResponse(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    result=InputRequiredResult(
+                        meta=self._result_meta(),
+                        input_requests=requests,
+                        request_state=state,
+                    ),
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def _list_tools(
         self,
@@ -421,27 +507,42 @@ class BaseTransport:
         self,
         message: JSONRPCRequest,
         request: Request,
-    ) -> ToolsCallResponse | JSONRPCError | InsufficientScope:
+    ) -> ToolsCallResponse | InputRequiredResponse | JSONRPCError | InsufficientScope:
         match parse_model(ToolsCallRequest, message.model_dump()):
             case InvalidModel(description=description):
                 LOGGER.error("Tool call validation error")
                 return error_response(message.id, ErrorCode.INVALID_PARAMS, description)
             case Parsed(value=validated):
+                request.scope[INVOCATION_CONTEXT_KEY] = InvocationContext(
+                    method="tools/call",
+                    name=validated.params.name,
+                    arguments=validated.params.arguments,
+                    input_responses=validated.params.input_responses,
+                    request_state=validated.params.request_state,
+                    elicitation_modes=supported_elicitation_modes(
+                        request_meta(message.params)["io.modelcontextprotocol/clientCapabilities"].get(
+                            "elicitation",
+                        ),
+                    ),
+                )
                 outcome = await self._server.call_tool(
                     validated.params.name,
                     validated.params.arguments,
                     request,
                 )
-                return self._tool_response(validated.id, outcome)
+                return self._tool_response(message, outcome)
             case _ as unreachable:
                 assert_never(unreachable)
 
     def _tool_response(
         self,
-        message_id: int | str | None,
+        message: JSONRPCRequest,
         outcome: ToolCallOutcome,
-    ) -> ToolsCallResponse | JSONRPCError | InsufficientScope:
+    ) -> ToolsCallResponse | InputRequiredResponse | JSONRPCError | InsufficientScope:
+        message_id = message.id
         match outcome:
+            case InputRequired() | RetryRequired():
+                return self._mrtr_response(message, outcome)
             case BaseModel() as returned_value:
                 return ToolsCallResponse(
                     jsonrpc="2.0",
@@ -477,7 +578,12 @@ class BaseTransport:
                         structured_content=data.model_dump(mode="json"),
                     ),
                 )
-            case ToolNotFound() | InvalidArguments() as rejected:
+            case (
+                ToolNotFound()
+                | InvalidArguments()
+                | InvalidContinuationState()
+                | InvalidInputResponse()
+            ) as rejected:
                 return error_response(message_id, ErrorCode.INVALID_PARAMS, rejected.message)
             case InsufficientScope():
                 return outcome

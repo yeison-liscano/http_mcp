@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from http_mcp._mcp_types.capabilities import ServerCapabilities
+from http_mcp._mcp_types.elicitation import InputRequired, RetryRequired
 from http_mcp._mcp_types.prompts import ProtocolPrompt, RenderedPrompt
 from http_mcp._mcp_types.results import CacheScope
 from http_mcp.failures import (
@@ -16,9 +17,14 @@ from http_mcp.failures import (
     ToolInvocationFailed,
     ToolNotFound,
 )
+from http_mcp.types.continuation import InvalidContinuationState, InvalidInputResponse
 
 type ToolCallOutcome = (
     BaseModel
+    | InputRequired
+    | RetryRequired
+    | InvalidContinuationState
+    | InvalidInputResponse
     | ToolNotFound
     | InsufficientScope
     | InvalidArguments
@@ -27,6 +33,10 @@ type ToolCallOutcome = (
 )
 type PromptGetOutcome = (
     RenderedPrompt
+    | InputRequired
+    | RetryRequired
+    | InvalidContinuationState
+    | InvalidInputResponse
     | PromptNotFound
     | InsufficientScope
     | InvalidArguments
