@@ -17,6 +17,7 @@ from http_mcp.failures import (
     ToolInvocationFailed,
     tool_failure_message,
 )
+from http_mcp.types.continuation import InvocationResult
 from http_mcp.types.models import Arguments, ErrorMessage
 from http_mcp.types.utils import generate_union_schema
 
@@ -52,11 +53,11 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
     func: (
         Callable[
             [Arguments[TInputs]],
-            Awaitable[TOutput] | TOutput,
+            Awaitable[InvocationResult[TOutput]] | InvocationResult[TOutput],
         ]
         | Callable[
             [],
-            Awaitable[TOutput] | TOutput,
+            Awaitable[InvocationResult[TOutput]] | InvocationResult[TOutput],
         ]
     )
     inputs: type[TInputs]
@@ -99,31 +100,34 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         schema["title"] = self.name + "Output"
         return schema
 
-    async def _run_without_arguments(self) -> TOutput:
+    async def _run_without_arguments(self) -> InvocationResult[TOutput]:
         if inspect.iscoroutinefunction(self.func):
             return await self.func()
 
         return await asyncio.to_thread(
             cast(
-                "Callable[[], TOutput]",
+                "Callable[[], InvocationResult[TOutput]]",
                 self.func,
             ),
         )
 
-    async def _run_with_arguments(self, arguments: Arguments[TInputs]) -> TOutput:
+    async def _run_with_arguments(
+        self,
+        arguments: Arguments[TInputs],
+    ) -> InvocationResult[TOutput]:
         if inspect.iscoroutinefunction(self.func):
             return await self.func(arguments)
 
         _func = cast(
-            "Callable[[Arguments[TInputs]], TOutput]",
+            "Callable[[Arguments[TInputs]], InvocationResult[TOutput]]",
             self.func,
         )
         return await asyncio.to_thread(_func, arguments)
 
     async def _contain(
         self,
-        run: Coroutine[Any, Any, TOutput],
-    ) -> TOutput | StructuredToolInvocationFailed | ToolInvocationFailed:
+        run: Coroutine[Any, Any, InvocationResult[TOutput]],
+    ) -> InvocationResult[TOutput] | StructuredToolInvocationFailed | ToolInvocationFailed:
         """Run the tool function, turning anything it raises into a value.
 
         Tool functions are user code and may raise anything, so this is the boundary
@@ -151,7 +155,12 @@ class Tool[TInputs: BaseModel | None, TOutput: BaseModel]:
         self,
         args: dict,
         request: Request,
-    ) -> TOutput | StructuredToolInvocationFailed | InvalidArguments | ToolInvocationFailed:
+    ) -> (
+        InvocationResult[TOutput]
+        | StructuredToolInvocationFailed
+        | InvalidArguments
+        | ToolInvocationFailed
+    ):
         # Handle functions without arguments
         if issubclass(self.inputs, type(None)):
             return await self._contain(self._run_without_arguments())

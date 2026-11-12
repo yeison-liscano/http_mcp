@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import ErrorCode
+from http_mcp._mcp_types.elicitation import InputRequired, RetryRequired
 from http_mcp._mcp_types.prompts import (
     PromptArgument,
     PromptMessage,
@@ -24,6 +25,11 @@ from http_mcp.failures import (
     prompt_failure_message,
 )
 from http_mcp.types import Arguments
+from http_mcp.types.continuation import (
+    InvalidContinuationState,
+    InvalidInputResponse,
+    InvocationResult,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,11 +39,13 @@ class Prompt[TArguments: BaseModel | None]:
     func: (
         Callable[
             [Arguments[TArguments]],
-            Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
+            Awaitable[InvocationResult[tuple[PromptMessage, ...]]]
+            | InvocationResult[tuple[PromptMessage, ...]],
         ]
         | Callable[
             [],
-            Awaitable[tuple[PromptMessage, ...]] | tuple[PromptMessage, ...],
+            Awaitable[InvocationResult[tuple[PromptMessage, ...]]]
+            | InvocationResult[tuple[PromptMessage, ...]],
         ]
     )
     arguments_type: type[TArguments]
@@ -81,13 +89,13 @@ class Prompt[TArguments: BaseModel | None]:
             arguments=self.arguments,
         )
 
-    async def _run_without_arguments(self) -> tuple[PromptMessage, ...]:
+    async def _run_without_arguments(self) -> InvocationResult[tuple[PromptMessage, ...]]:
         if inspect.iscoroutinefunction(self.func):
             return await self.func()
 
         return await asyncio.to_thread(
             cast(
-                "Callable[[], tuple[PromptMessage, ...]]",
+                "Callable[[], InvocationResult[tuple[PromptMessage, ...]]]",
                 self.func,
             ),
         )
@@ -95,20 +103,20 @@ class Prompt[TArguments: BaseModel | None]:
     async def _run_with_arguments(
         self,
         arguments: Arguments[TArguments],
-    ) -> tuple[PromptMessage, ...]:
+    ) -> InvocationResult[tuple[PromptMessage, ...]]:
         if inspect.iscoroutinefunction(self.func):
             return await self.func(arguments)
 
         _func = cast(
-            "Callable[[Arguments[TArguments]], tuple[PromptMessage, ...]]",
+            "Callable[[Arguments[TArguments]], InvocationResult[tuple[PromptMessage, ...]]]",
             self.func,
         )
         return await asyncio.to_thread(_func, arguments)
 
     async def _contain(
         self,
-        run: Coroutine[Any, Any, tuple[PromptMessage, ...]],
-    ) -> RenderedPrompt | PromptInvocationFailed | PromptServerFailure:
+        run: Coroutine[Any, Any, InvocationResult[tuple[PromptMessage, ...]]],
+    ) -> InvocationResult[RenderedPrompt] | PromptInvocationFailed | PromptServerFailure:
         """Run the prompt function, turning anything it raises into a value.
 
         Prompt functions are user code and may raise anything, so this is the boundary
@@ -126,13 +134,29 @@ class Prompt[TArguments: BaseModel | None]:
                 ErrorCode.INTERNAL_ERROR,
                 prompt_failure_message(self.name, "Unknown error"),
             )
-        return RenderedPrompt(description=self.description, messages=messages)
+        match messages:
+            case (
+                InputRequired()
+                | RetryRequired()
+                | InvalidContinuationState()
+                | InvalidInputResponse()
+            ):
+                return messages
+            case tuple():
+                return RenderedPrompt(description=self.description, messages=messages)
+            case _ as unreachable:
+                assert_never(unreachable)
 
     async def invoke(
         self,
         arguments: dict,
         request: Request,
-    ) -> RenderedPrompt | InvalidArguments | PromptInvocationFailed | PromptServerFailure:
+    ) -> (
+        InvocationResult[RenderedPrompt]
+        | InvalidArguments
+        | PromptInvocationFailed
+        | PromptServerFailure
+    ):
         # Handle functions without arguments
         if issubclass(self.arguments_type, type(None)):
             return await self._contain(self._run_without_arguments())

@@ -1,4 +1,5 @@
 import logging
+import secrets
 import sys
 
 LOGGER = logging.getLogger(__name__)
@@ -18,7 +19,20 @@ def main() -> int:
 
     # Test 2: Import types
     try:
-        from http_mcp.types import Prompt, PromptMessage, TextContent, Tool  # noqa: PLC0415, F401
+        from http_mcp.types import (  # noqa: PLC0415
+            ContinuationBinding,
+            ElicitationRequest,
+            ElicitationSchema,
+            FormElicitation,
+            InputRequired,
+            Prompt,
+            PromptMessage,
+            SignedStateCodec,
+            StringField,
+            TextContent,
+            Tool,  # noqa: F401
+            VerifiedState,
+        )
     except ImportError:
         LOGGER.exception("✗ Failed to import types")
         return 1
@@ -71,6 +85,23 @@ def main() -> int:
             "role": "user",
             "content": {"type": "text", "text": "Smoke test"},
         }
+        # Test 7: MRTR helpers must also work from the installed wheel and sdist.
+        codec = SignedStateCodec(secrets.token_bytes(32))
+        binding = ContinuationBinding("smoke-user", "tools/call", "smoke", "smoke-client")
+        state = codec.seal({"step": 1}, binding)
+        assert codec.open(state, binding) == VerifiedState({"step": 1})
+        pending = InputRequired(
+            input_requests={
+                "profile": ElicitationRequest(
+                    params=FormElicitation(
+                        message="Your name?",
+                        requested_schema=ElicitationSchema(properties={"name": StringField()}),
+                    ),
+                ),
+            },
+            request_state=state,
+        )
+        assert pending.input_requests["profile"].method == "elicitation/create"
     except Exception:
         LOGGER.exception("✗ Failed to verify capabilities or public prompt content types")
         return 1

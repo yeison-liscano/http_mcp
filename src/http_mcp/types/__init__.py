@@ -1,17 +1,81 @@
 from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.elicitation import (
+    AcceptedElicitation,
+    BooleanField,
+    CancelledElicitation,
+    ChoiceField,
+    ChoiceItems,
+    ChoiceOption,
+    DeclinedElicitation,
+    ElicitationMode,
+    ElicitationRequest,
+    ElicitationResponse,
+    ElicitationSchema,
+    FormElicitation,
+    FormField,
+    InputRequired,
+    MultiChoiceField,
+    NumberField,
+    RetryRequired,
+    StringField,
+    TitledChoiceField,
+    TitledChoiceItems,
+    UrlElicitation,
+)
 from http_mcp._mcp_types.prompts import PromptMessage
 from http_mcp._mcp_types.tools import ToolAnnotations
+from http_mcp._parsing import Parsed as ValidatedInput
 
+from .continuation import (
+    ContinuationBinding,
+    InvalidContinuationState,
+    InvalidInputResponse,
+    InvocationContext,
+    InvocationResult,
+    MissingInputResponse,
+    SignedStateCodec,
+    VerifiedState,
+)
 from .models import Arguments, NoArguments
 from .prompts import Prompt
 from .tools import Tool
 
 __all__ = [
+    "AcceptedElicitation",
     "Arguments",
+    "BooleanField",
+    "CancelledElicitation",
+    "ChoiceField",
+    "ChoiceItems",
+    "ChoiceOption",
+    "ContinuationBinding",
+    "DeclinedElicitation",
+    "ElicitationMode",
+    "ElicitationRequest",
+    "ElicitationResponse",
+    "ElicitationSchema",
+    "FormElicitation",
+    "FormField",
+    "InputRequired",
+    "InvalidContinuationState",
+    "InvalidInputResponse",
+    "InvocationContext",
+    "InvocationResult",
+    "MissingInputResponse",
+    "MultiChoiceField",
     "NoArguments",
+    "NumberField",
     "Prompt",
     "PromptMessage",
+    "RetryRequired",
+    "SignedStateCodec",
+    "StringField",
     "TextContent",
+    "TitledChoiceField",
+    "TitledChoiceItems",
     "Tool",
     "ToolAnnotations",
+    "UrlElicitation",
+    "ValidatedInput",
+    "VerifiedState",
 ]

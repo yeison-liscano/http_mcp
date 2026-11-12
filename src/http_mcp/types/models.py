@@ -6,6 +6,7 @@ from starlette.requests import Request
 
 from http_mcp._json_rcp_types.errors import Error, ErrorCode
 from http_mcp.exceptions import ServerError
+from http_mcp.types.continuation import INVOCATION_CONTEXT_KEY, InvocationContext
 
 LOGGER = logging.getLogger(__name__)
 _WIRING_ERROR = "Internal server error"
@@ -19,6 +20,12 @@ class NoArguments(BaseModel):
 class Arguments[TInputs: BaseModel | None]:
     request: Request
     inputs: TInputs
+
+    @property
+    def continuation(self) -> InvocationContext | None:
+        """MRTR context when invoked over a transport; absent on direct calls."""
+        context = self.request.scope.get(INVOCATION_CONTEXT_KEY)
+        return context if isinstance(context, InvocationContext) else None
 
     def get_state_key[TKey](
         self,

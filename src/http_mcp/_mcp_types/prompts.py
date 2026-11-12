@@ -5,11 +5,12 @@ from pydantic import BaseModel, Field
 
 from http_mcp._json_rcp_types.messages import JSONRPCMessage, JSONRPCRequest
 from http_mcp._mcp_types.content import TextContent
+from http_mcp._mcp_types.mrtr import ContinuationParams
 from http_mcp._mcp_types.pagination import PaginatedRequestParams
 from http_mcp._mcp_types.results import CacheableResult, Result
 
 
-class PromptGetRequestParams(BaseModel):
+class PromptGetRequestParams(ContinuationParams):
     name: str
     # Optional per the MCP specification: omitted for prompts that take no arguments.
     arguments: dict = Field(default_factory=dict)

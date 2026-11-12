@@ -1,8 +1,9 @@
 """Base result shapes shared by every MCP method.
 
 Revision ``2026-07-28`` requires ``resultType`` and a ``_meta`` block identifying the
-server on all results, and caching hints on list-style results. The fields are required
-here so that a result missing them cannot be built.
+server on all results, and caching hints on list-style results. Complete results
+use these types; input-required results live in ``mrtr.py`` so they cannot carry
+complete-result payloads by accident.
 """
 
 from typing import Literal
